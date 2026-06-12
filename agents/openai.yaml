@@ -1,0 +1,4 @@
+interface:
+  display_name: "WebCraft"
+  short_description: "Build VicroCode-ready web apps with platform-aware defaults"
+  default_prompt: "Use $webcraft to build or adapt this website app for VicroCode runtime, proxy, storage, iframe, publish, monetization, and user-specified AI integration rules. If I am unsure what to build, help me define input -> output first."
