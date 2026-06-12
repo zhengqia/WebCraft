@@ -15,13 +15,13 @@ v2026-06-12.01
 Remote package example:
 
 ```text
-https://www.vicoco.cn/SKILLS/webcraft.zip
+https://www.vicoco.cn/skills/webcraft.zip
 ```
 
 Preferred metadata URL example:
 
 ```text
-https://www.vicoco.cn/SKILLS/webcraft.json
+https://www.vicoco.cn/skills/webcraft.json
 ```
 
 Whenever this skill is used, follow this behavior:
@@ -66,7 +66,7 @@ Choose in this order:
 Site base: https://www.vicoco.cn
 Login: https://www.vicoco.cn/register-login
 User center: https://www.vicoco.cn/user-center
-Skill package example: https://www.vicoco.cn/SKILLS/webcraft.zip
+Skill package example: https://www.vicoco.cn/skills/webcraft.zip
 ```
 
 ### Global / English
@@ -97,7 +97,7 @@ Example fields:
   "version": "v2026-05-21.3",
   "manifest_schema": "vicrocode.skill.release.v1",
   "published_at": "2026-05-16T00:00:00Z",
-  "zip_url": "https://www.vicoco.cn/SKILLS/webcraft.zip",
+  "zip_url": "https://www.vicoco.cn/skills/webcraft.zip",
   "zip_sha256": "",
   "size_bytes": 0,
   "site_flavor": "cn",

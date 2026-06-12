@@ -92,7 +92,7 @@ def main() -> int:
     write_zip(skill_dir, zip_path)
     zip_sha256 = sha256_of_file(zip_path)
     size_bytes = os.path.getsize(zip_path)
-    zip_url = f"{str(args.site_base).rstrip('/')}/SKILLS/{skill_name}.zip"
+    zip_url = f"{str(args.site_base).rstrip('/')}/skills/{skill_name}.zip"
 
     metadata = build_metadata(
         skill_name=skill_name,

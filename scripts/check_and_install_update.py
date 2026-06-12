@@ -6,7 +6,7 @@ Usage examples:
   python scripts/check_and_install_update.py
   python scripts/check_and_install_update.py --json
   python scripts/check_and_install_update.py --apply
-  python scripts/check_and_install_update.py --url https://www.vicoco.cn/SKILLS/webcraft.zip --apply
+  python scripts/check_and_install_update.py --url https://www.vicoco.cn/skills/webcraft.zip --apply
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from pathlib import Path
 
 
 VERSION_PATTERN = re.compile(r"v(\d{4}-\d{2}-\d{2})(?:\.(\d+))?")
-DEFAULT_URL = "https://www.vicoco.cn/SKILLS/webcraft.zip"
+DEFAULT_URL = "https://www.vicoco.cn/skills/webcraft.zip"
 
 
 def parse_args() -> argparse.Namespace:
