@@ -1,0 +1,21 @@
+{
+  "name": "zhengqia-webcraft",
+  "owner": {
+    "name": "zhengqia"
+  },
+  "metadata": {
+    "description": "VicroCode web application development skill marketplace",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "webcraft",
+      "source": "./",
+      "description": "Build, repair, and package VicroCode-ready web apps with proper routing, storage, monetization, and AI integration.",
+      "version": "1.0.0",
+      "category": "development",
+      "tags": ["web-builder", "deploy", "monetization", "flask", "python", "sqlite"],
+      "strict": false
+    }
+  ]
+}
