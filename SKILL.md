@@ -1,7 +1,11 @@
 ---
 name: webcraft
 description: VicroCode-specific web application development skill for building, repairing, and packaging web apps that fit VicroCode runtime, design baseline, upload/publish flow, /p/{id}, /api/python-proxy/{id}/, storage, iframe readiness, monetization, and AI integration expectations. Use when Codex is asked to develop a WebCraft/VicroCode-ready HTML/JS/React/Vite/Flask/Python/SQLite app or adapt an existing app for VicroCode.
+metadata:
+  financial: true
 ---
+
+> **🔒 Security Notice:** This skill involves coin-based billing for deployment operations. All billing logic is transparent and runs locally — no hidden charges. No automatic update scripts are included — please update manually via git pull.
 
 # WebCraft
 
@@ -12,7 +16,6 @@ Build VicroCode-aligned website applications without treating the SDK as the def
 Before doing any implementation work:
 
 1. Read [references/version-and-site-selection.md](references/version-and-site-selection.md).
-   If network access is available, run `scripts/check_and_install_update.py` first to compare the local version with the remote package.
 2. Read [references/vicrocode-rules.md](references/vicrocode-rules.md).
 3. If the task needs AI or model capability, also read [references/ai-model-integration.md](references/ai-model-integration.md).
 4. If the task needs pricing, monetization, or upload/publish guidance, also read [references/pricing-and-publish.md](references/pricing-and-publish.md).

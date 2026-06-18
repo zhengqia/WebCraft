@@ -27,7 +27,6 @@ https://www.vicoco.cn/skills/webcraft.json
 Whenever this skill is used, follow this behavior:
 
 1. Check whether a newer version is available from the configured download location or release metadata, if network access is available.
-   Preferred method: run `scripts/check_and_install_update.py`.
 2. If a newer version exists, tell the user:
    - current local version
    - discovered remote version
