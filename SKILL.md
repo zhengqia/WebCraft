@@ -165,6 +165,13 @@ When building or repairing a public tool:
 - Do not use `proxy-project-by-id` as the default runtime path for Python projects.
 - Do not hardcode localhost or fixed absolute asset paths into deliverables intended for VicroCode.
 - Do not require SDK usage for ordinary website or AI app development.
+- Long-running Python-backed requests through `/api/python-proxy/{projectId}/...` must not rely on the default proxy timeout. The default read timeout is 60 seconds unless the request opts into the platform long-timeout path.
+- Current VicroCode long-timeout triggers for Python proxy requests are:
+  - request header `X-Vicro-Long-Timeout: 1` (also accepts `true`, `yes`, `y`, or `on`)
+  - query flag `__vicro_long_timeout=1` (also accepts `true`, `yes`, `y`, or `on`)
+  - proxied inner path starts with `/api/ai/`, `/api/script/`, `/api/run-script/`, `/api/run_script/`, `/api/video/generate`, `/api/video/extract-frame`, `/api/video/download-stream`, or `/api/video/download-proxy`
+- For image generation/editing, video/audio generation, OCR, large file processing, or any upstream model/API call that can exceed 45 seconds, use one of the long-timeout triggers or implement an async job flow with start/status/result endpoints. Do not expose these workloads only as plain synchronous paths such as `/api/rewrite`, `/api/generate`, or `/api/process` without a long-timeout trigger.
+- If Python code uses an upstream provider timeout longer than 60 seconds or retry loops that can exceed 60 seconds, the browser-to-platform request must use the long-timeout trigger or the user will see a platform proxy timeout before the provider returns.
 - If the app performs initial async data/media loading after HTML load, send a one-time parent-window readiness signal only after the first usable UI state is rendered. Use `window.parent.postMessage({ type: "vicro-project-ready" }, "*")` defensively, and do not include secrets, internal paths, tokens, or platform implementation details in the message.
 - For image-heavy or gallery-style apps, do not assign real `src` URLs to every offscreen image during initial render. Use placeholders plus `data-src` and `IntersectionObserver` or an equivalent list virtualization/pagination strategy. Native `loading="lazy"` is only a supplement and is not enough if project code still writes all real image URLs into `src` at once.
 - Image placeholders should be visible in the finished page layout and show a per-image loading state or progress indicator. Load visible images through a small controlled queue instead of allowing all gallery/result images to download at the same time.

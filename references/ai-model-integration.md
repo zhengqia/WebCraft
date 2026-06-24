@@ -94,7 +94,37 @@ Choose by the user's actual provider protocol:
 
 Do not force every provider through one schema.
 
-## 6. Example Integration Patterns
+## 6. Long-Running VicroCode Python Proxy Calls
+
+When the AI feature runs inside a Python-backed VicroCode project and the browser calls it through `/api/python-proxy/{projectId}/...`, account for the platform proxy timeout before choosing endpoint names.
+
+The default Python proxy read timeout is 60 seconds. Current long-timeout triggers are:
+
+1. Add request header `X-Vicro-Long-Timeout: 1`.
+2. Add query flag `__vicro_long_timeout=1`.
+3. Use a proxied inner path that starts with one of these prefixes:
+   - `/api/ai/`
+   - `/api/script/`
+   - `/api/run-script/`
+   - `/api/run_script/`
+   - `/api/video/generate`
+   - `/api/video/extract-frame`
+   - `/api/video/download-stream`
+   - `/api/video/download-proxy`
+
+For image generation/editing, video generation, audio generation, OCR, large file conversion, or provider calls with retries, avoid plain synchronous endpoint names like `/api/rewrite`, `/api/generate`, or `/api/process` unless the frontend request also sends the long-timeout header/query flag.
+
+Prefer async job endpoints for slow media generation:
+
+```text
+POST /api/ai/jobs
+GET  /api/ai/jobs/{job_id}
+GET  /api/ai/jobs/{job_id}/result
+```
+
+If the upstream provider request timeout is longer than 60 seconds, either lower it below the proxy timeout only when failure is acceptable, or use the VicroCode long-timeout trigger. Otherwise the platform proxy can fail first even though the provider eventually succeeds.
+
+## 7. Example Integration Patterns
 
 ### OpenAI-compatible
 
@@ -142,7 +172,7 @@ const response = await fetch(`${baseUrl}/models/${modelAction}`, {
 });
 ```
 
-## 7. Pricing Guidance
+## 8. Pricing Guidance
 
 If the user wants AI features to cost coins in the VicroCode project:
 
@@ -152,7 +182,7 @@ If the user wants AI features to cost coins in the VicroCode project:
 
 Do not invent exact cost-based pricing if the provider's billing data is missing.
 
-## 8. Common Mistakes
+## 9. Common Mistakes
 
 Avoid:
 
@@ -161,3 +191,4 @@ Avoid:
 3. assuming every provider uses `Bearer` auth
 4. assuming every provider uses OpenAI-compatible JSON
 5. implementing model calls before collecting endpoint, auth, and model info
+6. routing slow image/video/audio/OCR work through `/api/python-proxy/{projectId}/api/rewrite` or another plain synchronous Python endpoint without a VicroCode long-timeout trigger or async job flow

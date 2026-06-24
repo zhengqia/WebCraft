@@ -4,7 +4,7 @@
   "description": "Build, repair, and package VicroCode-ready web apps with proper routing, storage, monetization, and AI integration. Supports HTML/JS/React/Vite/Flask/Python/SQLite with one-click deploy and publish.",
   "category": "Development",
   "tags": ["web-builder", "deploy", "monetization", "flask", "python", "sqlite", "ai-integration", "no-server"],
-  "version": "1.0.0",
+  "version": "v2026-06-24.01",
   "author": "zhengqia",
   "homepage": "https://github.com/zhengqia/WebCraft",
   "license": "MIT"

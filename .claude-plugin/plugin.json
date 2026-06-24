@@ -1,6 +1,6 @@
 {
   "name": "webcraft",
-  "version": "1.0.0",
+  "version": "v2026-06-24.01",
   "description": "Build, repair, and package VicroCode-ready web apps with proper routing, storage, monetization, and AI integration. Supports HTML/JS/React/Flask/Python/SQLite.",
   "author": {
     "name": "zhengqia"
