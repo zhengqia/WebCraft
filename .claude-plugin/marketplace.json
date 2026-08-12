@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "VicroCode web application development skill marketplace",
-    "version": "v2026-08-12.01"
+    "version": "v100"
   },
   "plugins": [
     {
       "name": "webcraft",
       "source": "./",
       "description": "Build and secure VicroCode-ready apps with Credential Vault proxying, cloning, routing, storage, monetization, and AI/API integration.",
-      "version": "v2026-08-12.02",
+      "version": "v100",
       "category": "development",
       "tags": ["web-builder", "deploy", "monetization", "credential-vault", "cloning", "flask", "python", "sqlite"],
       "strict": false

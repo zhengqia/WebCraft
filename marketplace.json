@@ -4,7 +4,7 @@
   "description": "Build, secure, and package VicroCode-ready web apps with runtime routing, storage, monetization, Credential Vault proxying, cloning, and AI/API integration.",
   "category": "Development",
   "tags": ["web-builder", "deploy", "monetization", "credential-vault", "cloning", "flask", "python", "sqlite", "ai-integration", "no-server"],
-  "version": "v2026-08-12.02",
+  "version": "v100",
   "author": "zhengqia",
   "homepage": "https://github.com/zhengqia/WebCraft",
   "license": "MIT"

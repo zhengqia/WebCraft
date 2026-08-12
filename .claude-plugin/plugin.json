@@ -1,6 +1,6 @@
 {
   "name": "webcraft",
-  "version": "v2026-08-12.02",
+  "version": "v100",
   "description": "Build, secure, and package VicroCode-ready web apps with routing, storage, monetization, Credential Vault proxying, cloning, and AI/API integration.",
   "author": {
     "name": "zhengqia"
