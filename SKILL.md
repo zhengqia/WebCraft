@@ -1,11 +1,7 @@
 ---
 name: webcraft
-description: VicroCode-specific web application development skill for building, repairing, and packaging web apps that fit VicroCode runtime, design baseline, upload/publish flow, /p/{id}, /api/python-proxy/{id}/, storage, iframe readiness, monetization, and AI integration expectations. Use when Codex is asked to develop a WebCraft/VicroCode-ready HTML/JS/React/Vite/Flask/Python/SQLite app or adapt an existing app for VicroCode.
-metadata:
-  financial: true
+description: Build, repair, secure, and package VicroCode-ready HTML/JS/React/Vite/Flask/Python/SQLite apps with correct runtime routing, storage, iframe behavior, monetization, AI/API integration, Credential Vault proxying, secret removal, clone readiness, project checks, API connectivity repair, upload, and publishing. Use when an agent must create or adapt a VicroCode/WebCraft app, replace hard-coded API keys with hosted API identifiers, connect code to __vicro_proxy__, prepare a project for VicroCode cloning, or repair failures reported by the VicroCode project check.
 ---
-
-> **🔒 Security Notice:** This skill involves coin-based billing for deployment operations. All billing logic is transparent and runs locally — no hidden charges. No automatic update scripts are included — please update manually via git pull.
 
 # WebCraft
 
@@ -19,7 +15,8 @@ Before doing any implementation work:
 2. Read [references/vicrocode-rules.md](references/vicrocode-rules.md).
 3. If the task needs AI or model capability, also read [references/ai-model-integration.md](references/ai-model-integration.md).
 4. If the task needs pricing, monetization, or upload/publish guidance, also read [references/pricing-and-publish.md](references/pricing-and-publish.md).
-5. Use [references/dialogue-template.md](references/dialogue-template.md) as the default conversation pattern when required information is still missing.
+5. If the app calls any authenticated API, uses Credential Vault, or must support cloning, read [references/credential-proxy-and-cloning.md](references/credential-proxy-and-cloning.md).
+6. Use [references/dialogue-template.md](references/dialogue-template.md) as the default conversation pattern when required information is still missing.
 
 ## Idea Discovery
 
@@ -77,6 +74,7 @@ If the user is still unsure, give 3-5 concrete app directions in `input -> outpu
    - collect the provider, base URL, endpoint, auth method, model, and capability type first
    - route calls by the provider's real protocol family and endpoint type
    - do not push any platform-managed model API by default
+   - when Credential Vault or cloning is required, collect the hosted API identifier instead of asking the user to paste the raw secret into chat or source code
 10. If the app needs monetization:
    - distinguish project access/download coin pricing from model API billing
    - explain which actions should charge coins and why
@@ -86,6 +84,7 @@ If the user is still unsure, give 3-5 concrete app directions in `input -> outpu
 11. If the app is meant to be published on VicroCode:
    - guide the user to `/project-upload-website`
    - then direct them to `/project-manage` for post-upload management
+   - when cloning is planned, create each hosted API in `/credential-vault` before upload, replace direct provider calls, remove sensitive files, then run the project rule and API-connectivity check before submitting clone review
 12. End with a concrete acceptance check:
    - route correctness
    - refresh survival
@@ -93,6 +92,7 @@ If the user is still unsure, give 3-5 concrete app directions in `input -> outpu
    - upload/publish destination
    - language package and locale switching behavior when the app is public-facing
    - AI/model provider config handling
+   - hosted API proxy behavior, secret-removal scan, platform API-connectivity results, and clone binding when relevant
    - monetization or charging logic when relevant
 
 ## Multilingual Project Standard
@@ -140,6 +140,11 @@ When building or repairing a public tool:
 ## Non-Negotiables
 
 - Prefer same-origin `/api/...` in production unless the task explicitly requires cross-origin deployment.
+- For Credential Vault integrations, use the project-relative `__vicro_proxy__/{identifier}/{upstreamPath}` contract; do not hardcode a project ID, VicroCode domain, provider secret, or `/api/project-proxy/{id}` into browser code.
+- In Python project backends, call the proxy with the platform-injected `VICRO_BACKEND_INTERNAL_URL`, `VICRO_PROJECT_PROXY_PATH`, and `VICRO_PROJECT_PROXY_TOKEN`; never return or log the project proxy token.
+- Never send a provider `Authorization`, API-key header, API-key query parameter, Basic password, OAuth client secret, or HMAC secret from project code when the API is managed by Credential Vault. The platform injects authentication after receiving the project request.
+- Treat the hosted API identifier as a stable code contract. Preserve it across source updates so clones can bind their own credentials without code changes.
+- A project prepared for cloning must not ship `.env`, `.env.*`, private-key files, service-account files, or hard-coded credentials. Run `scripts/check_clone_secrets.py <project-dir>` before upload when the WebCraft package is available.
 - All user-facing prompts, confirmations, warnings, loading states, and errors must be presented through webpage overlay UI instead of native browser dialogs.
 - Destructive or sensitive operations must not execute until the user confirms through a webpage overlay.
 - Treat `/api/python-proxy/{projectId}/` as the real runtime entry for Python-backed projects.

@@ -1,11 +1,11 @@
 {
   "name": "webcraft",
-  "version": "v2026-06-24.01",
-  "description": "Build, repair, and package VicroCode-ready web apps with proper routing, storage, monetization, and AI integration. Supports HTML/JS/React/Flask/Python/SQLite.",
+  "version": "v2026-08-12.02",
+  "description": "Build, secure, and package VicroCode-ready web apps with routing, storage, monetization, Credential Vault proxying, cloning, and AI/API integration.",
   "author": {
     "name": "zhengqia"
   },
   "license": "MIT",
-  "keywords": ["web-builder", "deploy", "monetization", "flask", "python", "sqlite", "no-server"],
+  "keywords": ["web-builder", "deploy", "monetization", "credential-vault", "cloning", "flask", "python", "sqlite", "no-server"],
   "skills": "./"
 }

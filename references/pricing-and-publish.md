@@ -6,13 +6,24 @@ Load this file when the task involves monetization, charging, upload, or publish
 
 When the user finishes building a VicroCode website app, guide them to:
 
-1. Upload/publish entry: `/project-upload-website`
-2. Post-upload management: `/project-manage`
+1. Credential setup for authenticated APIs: `/credential-vault`
+2. Upload/publish entry: `/project-upload-website`
+3. Post-upload management: `/project-manage`
 
 Explain this concretely:
 
 1. Upload source or website package through `/project-upload-website`
 2. After upload, manage the project, pricing, publish state, and subsequent edits from `/project-manage`
+
+If the project will be cloneable and calls an authenticated API, the complete order is:
+
+1. Create each hosted API in `/credential-vault`.
+2. Use WebCraft to replace direct authenticated provider calls.
+3. Remove sensitive files and run the local clone-secret preflight.
+4. Upload through `/project-upload-website`.
+5. In `/project-manage`, choose the hosted APIs used by the project.
+6. Run the project check and review both source-rule and hosted API-connectivity results.
+7. Submit administrator clone review only after the scan passes.
 
 Do not leave the user with code only and no platform publish destination.
 
@@ -144,3 +155,4 @@ Before finishing a monetized VicroCode app, verify:
 4. the deduction happens only after success
 5. prices are shown in coins
 6. AI/model pricing is not confused with generic project charging
+7. clone authorization price is not confused with the clone owner's third-party API/model usage cost

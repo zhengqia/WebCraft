@@ -9,6 +9,8 @@
 
 支持安装在Claude Code/Codex/OpenClaw/Hermes/Coze等多种智能体中。
 
+新版 WebCraft 支持 VicroCode 密钥托管与克隆开发：编程助手可以把项目中的 API Key、Bearer Token、OAuth2、HMAC 等认证改为平台代理调用，使用稳定的项目内标识码，克隆后由每位使用者绑定自己的密钥，无需修改源码或项目 ID。技能还包含克隆前敏感文件/硬编码密钥预检。
+
 
 ## About SKILL
 Develop and upload to VicroCode in one sentence — no more stressing over tech stack decisions and endless costs.
@@ -18,6 +20,8 @@ You don't need to worry about technology choices, servers, deployment methods, I
 Virtually no cost, and virtually no technical burden.
 
 Supports installation in Claude Code, Codex, OpenClaw, Hermes, Coze, and other agents.
+
+WebCraft also supports VicroCode Credential Vault and clone-ready development. Coding assistants can replace API keys, bearer tokens, OAuth2, HMAC, and other direct authentication with the platform proxy, use stable in-project identifiers, and let each clone owner bind a separate credential without source or project-ID changes. A local clone-secret preflight is included.
 
 
 ## 安装方法

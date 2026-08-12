@@ -50,6 +50,7 @@ If the app includes Python or Flask:
 2. Use explicit `apiBaseUrl` only when the deployment is intentionally split.
 3. Avoid default hardcoded `localhost`, `127.0.0.1`, or a fixed backend host.
 4. Do not use `api.vicrocode.com` / `api.vicoco.cn` as a project backend, platform business origin, or master/slave forwarding URL. These subdomains are only for the VicroCode API Center / model gateway public entrypoint.
+5. For a hosted third-party API or clone-ready app, use the project-relative `__vicro_proxy__/{identifier}/{path}` contract described in [credential-proxy-and-cloning.md](credential-proxy-and-cloning.md). Do not hardcode `/api/project-proxy/{projectId}` in project source.
 
 ### Python Project API
 
@@ -194,6 +195,8 @@ For file uploads on VicroCode, local success is not enough. Published deployment
    - provider-specific custom API
 4. Do not hardcode secrets in frontend code.
 5. If the user has not provided enough provider information, pause and ask before implementing.
+6. If the app will use Credential Vault or cloning, ask for the hosted API identifier instead of asking the user to paste the raw API key into chat or source.
+7. Credential Vault applies to any supported authenticated HTTP API, not only AI/model providers.
 
 ## 9. Coin Charging Rules
 
@@ -248,6 +251,9 @@ Avoid these:
 13. Starting several file uploads at once in a published VicroCode deployment without progress, locking, and JSON response validation
 14. Letting upload endpoints return HTML error pages or raw exception strings to frontend upload code
 15. Calling VicroCode coin charge APIs from a Python proxy iframe when the platform validates only `/p/{projectId}` project-page origin
+16. Keeping `.env`, private-key files, credential JSON, or provider credentials in a clone-ready upload
+17. Hardcoding `/api/project-proxy/{projectId}` or an original project ID instead of using the stable hosted API identifier
+18. Sending provider authentication from browser/Python project code after Credential Vault is enabled
 
 ## 12. Acceptance Checklist
 
@@ -270,3 +276,5 @@ Before finishing:
 15. Confirm background workers receive a request-time snapshot of required inputs and file paths when freshly inserted rows may not be immediately visible.
 16. Confirm long async media jobs can recover from durable output files when runtime SQLite status is stale, rolled back, or stuck at `processing`.
 17. For image-heavy apps, confirm offscreen gallery/history/result images do not receive real `src` URLs during initial render, visible image placeholders show loading/progress, image downloads are limited or queued, and readiness does not wait for all images to download.
+18. For hosted APIs, confirm source uses `__vicro_proxy__/{identifier}/...` or the injected Python proxy environment and never contains provider credentials or a hardcoded project ID.
+19. For clone-ready projects, run `scripts/check_clone_secrets.py <project-dir>`, upload, select the hosted APIs, pass the platform source-rule and API-connectivity check, and only then submit clone review.

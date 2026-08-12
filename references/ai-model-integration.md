@@ -12,6 +12,8 @@ Instead:
 2. Ask for the minimum configuration needed to integrate it safely.
 3. Implement against the user's chosen provider.
 
+If the developer wants Credential Vault or clone support, keep the chosen provider protocol but route authentication through the hosted API identifier. Read [credential-proxy-and-cloning.md](credential-proxy-and-cloning.md) and do not ask the user to paste the raw API key into the project or coding conversation.
+
 ## 2. Required Information To Collect
 
 When the user wants AI features, collect these items before wiring code:
@@ -23,9 +25,8 @@ When the user wants AI features, collect these items before wiring code:
 3. Exact endpoint path
    - if not standard
 4. API Key or credential injection method
-   - direct API key
-   - env var name
-   - backend secret config
+   - VicroCode Credential Vault identifier for clone-ready projects
+   - env var or backend secret config only when Credential Vault is explicitly not being used
 5. Model name
 6. Protocol family
    - OpenAI-compatible
@@ -76,6 +77,7 @@ Do not move into implementation until these are either answered or safely inferr
 3. If the user insists on frontend direct calls, make the risk explicit.
 4. Read secrets from env vars, deployment config, or user-managed settings.
 5. If the user says they do not yet have credentials, stop and ask them to obtain them from their chosen provider.
+6. For Credential Vault or cloning, ask the user to create the hosted API in `/credential-vault`; collect only its safe identifier and API/protocol details, never the raw credential.
 
 ## 5. Route Selection Rules
 

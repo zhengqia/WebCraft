@@ -64,6 +64,7 @@ If yes, immediately follow with:
 5. 这是文本、图片、视频、音频，还是 embedding？
 6. 你要前端直连，还是后端代调？
 7. 需要流式输出吗？
+8. 这个项目是否准备开启“克隆”？如果是，请先在“密钥托管”创建托管 API，只把项目内标识码和 API 地址发给我，不要把真实 API Key 发进对话或源码。
 ```
 
 ## 3. Third Decision: Monetization
@@ -87,18 +88,21 @@ If the user is building for VicroCode hosting but has not mentioned publish flow
 
 ## 5. Required Guidance When No API Credential Is Present
 
-If the app needs model APIs and the user has not provided credentials yet, the skill should say something equivalent to:
+If the app needs authenticated APIs and Credential Vault or cloning is planned, say something equivalent to:
 
 ```text
-先确认你要接哪个模型供应商。然后请提供：
+请先在 VicroCode 左侧“开发者 → 密钥托管”创建托管 API，然后复制该卡片上的“改造提示词”给我。
+我只需要：
 - Base URL / API 根地址
-- 模型名
+- 项目内标识码
 - 认证方式
-- API Key 或它将从哪个环境变量读取
-- 调用发生在前端还是后端
+- 模型名或接口协议（如适用）
+- 调用发生在前端还是 Python 后端
 
-如果你还没有 API Key，需要先去你选择的模型供应商后台创建。
+不要把真实 API Key 发给我，也不要写进源码。平台会在代理层注入密钥。
 ```
+
+If Credential Vault is not being used, follow the user's chosen backend secret strategy and still never hardcode a secret into frontend code.
 
 ## 6. Default Completion Checklist To Tell The User
 
@@ -106,6 +110,8 @@ When finishing a build, the skill should normally remind the user of the next pl
 
 ```text
 如果你要在 VicroCode 上发布：
-1. 先去 /project-upload-website 上传项目
-2. 再去 /project-manage 管理项目、定价和发布状态
+1. 有认证 API 时，先去 /credential-vault 创建托管 API 并完成代码改造
+2. 再去 /project-upload-website 上传项目
+3. 最后去 /project-manage 管理项目、定价和发布状态
+4. 如果开启克隆：先扫描通过，再提交管理员审核
 ```
