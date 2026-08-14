@@ -1,10 +1,10 @@
 {
   "name": "webcraft",
   "display_name": "WebCraft",
-  "description": "Build, secure, and package VicroCode-ready web apps with runtime routing, storage, monetization, Credential Vault proxying, cloning, and AI/API integration.",
+  "description": "Build and secure VicroCode-ready web apps and hosted Python API tools with runtime, schema, dependency, credential, testing, and publishing guidance.",
   "category": "Development",
-  "tags": ["web-builder", "deploy", "monetization", "credential-vault", "cloning", "flask", "python", "sqlite", "ai-integration", "no-server"],
-  "version": "v100",
+  "tags": ["web-builder", "api-endpoint", "deploy", "monetization", "credential-vault", "cloning", "flask", "python", "sqlite", "ai-integration", "no-server"],
+  "version": "v101",
   "author": "zhengqia",
   "homepage": "https://github.com/zhengqia/WebCraft",
   "license": "MIT"

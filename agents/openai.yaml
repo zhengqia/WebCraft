@@ -1,4 +1,4 @@
 interface:
   display_name: "WebCraft"
-  short_description: "Build secure VicroCode apps with hosted API cloning"
-  default_prompt: "Use $webcraft to build or adapt this VicroCode app, including runtime, storage, Credential Vault proxying, secret removal, clone readiness, testing, and publishing."
+  short_description: "Build VicroCode web apps and hosted API tools"
+  default_prompt: "Use $webcraft to build or adapt this VicroCode website app or hosted API endpoint with the correct runtime, security, testing, and publishing contract."

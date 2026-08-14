@@ -1,6 +1,6 @@
 ---
 name: webcraft
-description: Build, repair, secure, and package VicroCode-ready HTML/JS/React/Vite/Flask/Python/SQLite apps with correct runtime routing, storage, iframe behavior, monetization, AI/API integration, Credential Vault proxying, secret removal, clone readiness, project checks, API connectivity repair, upload, and publishing. Use when an agent must create or adapt a VicroCode/WebCraft app, replace hard-coded API keys with hosted API identifiers, connect code to __vicro_proxy__, prepare a project for VicroCode cloning, or repair failures reported by the VicroCode project check.
+description: Build, repair, secure, and package VicroCode-ready website apps and hosted Python API tools with correct runtime routing, storage, iframe behavior, monetization, AI/API integration, Credential Vault proxying, endpoint handler and schema contracts, restricted dependencies, testing, review, upload, and publishing. Use when an agent must create or adapt a VicroCode/WebCraft HTML/JS/React/Vite/Flask/Python/SQLite app, develop an API endpoint under API Endpoint Hosting, replace hard-coded API keys with hosted identifiers, prepare clone-ready source, or repair VicroCode project checks.
 ---
 
 # WebCraft
@@ -16,7 +16,8 @@ Before doing any implementation work:
 3. If the task needs AI or model capability, also read [references/ai-model-integration.md](references/ai-model-integration.md).
 4. If the task needs pricing, monetization, or upload/publish guidance, also read [references/pricing-and-publish.md](references/pricing-and-publish.md).
 5. If the app calls any authenticated API, uses Credential Vault, or must support cloning, read [references/credential-proxy-and-cloning.md](references/credential-proxy-and-cloning.md).
-6. Use [references/dialogue-template.md](references/dialogue-template.md) as the default conversation pattern when required information is still missing.
+6. If the task targets API Endpoint Hosting, read [references/api-endpoint-development.md](references/api-endpoint-development.md) and use its separate handler/workspace contract instead of website runtime conventions.
+7. Use [references/dialogue-template.md](references/dialogue-template.md) as the default conversation pattern when required information is still missing.
 
 ## Idea Discovery
 
@@ -40,52 +41,56 @@ If the user is still unsure, give 3-5 concrete app directions in `input -> outpu
 
 ## Workflow
 
-1. Detect or ask for the target site flavor first:
+1. Detect the target product first:
+   - VicroCode website application
+   - VicroCode hosted API endpoint
+   If it is an API endpoint, follow `references/api-endpoint-development.md`; do not generate a Flask/FastAPI server, frontend, `/p/{id}` route, `python-proxy` route, SQLite database, or website runtime tree.
+2. Detect or ask for the target site flavor first:
    - Chinese / domestic site
    - English / global site
-2. Detect whether this is:
+3. Detect whether this is:
    - a brand-new website app
    - an existing website app that needs modification, repair, or migration
-3. If it is an existing app, audit before redesign:
+4. If it is an existing app, audit before redesign:
    - current routes and entry points
    - current backend shape
    - current storage and SQLite paths
    - current AI integration points
    - current publish/deploy assumptions
    - current breakage symptoms
-4. Classify the project:
+5. Classify the project:
    - static frontend
    - frontend + Python/Flask
    - frontend + Python + SQLite
    - generation/media workflow
-5. If the app includes Python:
+6. If the app includes Python:
    - confirm whether the project should run on `3.9`, `3.10`, or `3.11`
    - default to `3.10` when the user has no hard requirement
    - do not silently design around `3.12+` because it is outside the platform's default supported range
-6. Fix pathing and persistence before UI polish:
+7. Fix pathing and persistence before UI polish:
    - entry route
    - same-origin platform API
    - `python-proxy` routing
    - platform-managed `runtime/storage` and `runtime/*.db`
    - refresh persistence and sync safety
-7. Prefer no-SDK implementation for new apps.
-8. If the app is an existing project, prefer minimal-compatible changes over unnecessary rewrites.
-9. If the app needs AI capability:
+8. Prefer no-SDK implementation for new apps.
+9. If the app is an existing project, prefer minimal-compatible changes over unnecessary rewrites.
+10. If the app needs AI capability:
    - collect the provider, base URL, endpoint, auth method, model, and capability type first
    - route calls by the provider's real protocol family and endpoint type
    - do not push any platform-managed model API by default
    - when Credential Vault or cloning is required, collect the hosted API identifier instead of asking the user to paste the raw secret into chat or source code
-10. If the app needs monetization:
+11. If the app needs monetization:
    - distinguish project access/download coin pricing from model API billing
    - explain which actions should charge coins and why
    - make coin deduction happen only after the charged action succeeds
    - if the action fails, do not deduct coins and do not design silent pre-charge behavior
    - propose pricing in coins with clear rationale
-11. If the app is meant to be published on VicroCode:
+12. If the app is meant to be published on VicroCode:
    - guide the user to `/project-upload-website`
    - then direct them to `/project-manage` for post-upload management
    - when cloning is planned, create each hosted API in `/credential-vault` before upload, replace direct provider calls, remove sensitive files, then run the project rule and API-connectivity check before submitting clone review
-12. End with a concrete acceptance check:
+13. End with a concrete acceptance check:
    - route correctness
    - refresh survival
    - runtime file placement
@@ -140,6 +145,7 @@ When building or repairing a public tool:
 ## Non-Negotiables
 
 - Prefer same-origin `/api/...` in production unless the task explicitly requires cross-origin deployment.
+- Treat hosted API endpoints as a separate product from website Python projects. Use root workspace files, `handler(payload, context)`, JSON schemas, restricted dependencies, and the API Endpoint Hosting review flow described in `references/api-endpoint-development.md`.
 - For Credential Vault integrations, use the project-relative `__vicro_proxy__/{identifier}/{upstreamPath}` contract; do not hardcode a project ID, VicroCode domain, provider secret, or `/api/project-proxy/{id}` into browser code.
 - In Python project backends, call the proxy with the platform-injected `VICRO_BACKEND_INTERNAL_URL`, `VICRO_PROJECT_PROXY_PATH`, and `VICRO_PROJECT_PROXY_TOKEN`; never return or log the project proxy token.
 - Never send a provider `Authorization`, API-key header, API-key query parameter, Basic password, OAuth client secret, or HMAC secret from project code when the API is managed by Credential Vault. The platform injects authentication after receiving the project request.

@@ -1,11 +1,11 @@
 {
   "name": "webcraft",
-  "version": "v100",
-  "description": "Build, secure, and package VicroCode-ready web apps with routing, storage, monetization, Credential Vault proxying, cloning, and AI/API integration.",
+  "version": "v101",
+  "description": "Build and secure VicroCode-ready web apps and hosted Python API tools with routing, schemas, restricted dependencies, credentials, testing, and publishing.",
   "author": {
     "name": "zhengqia"
   },
   "license": "MIT",
-  "keywords": ["web-builder", "deploy", "monetization", "credential-vault", "cloning", "flask", "python", "sqlite", "no-server"],
+  "keywords": ["web-builder", "api-endpoint", "deploy", "monetization", "credential-vault", "cloning", "flask", "python", "sqlite", "no-server"],
   "skills": "./"
 }

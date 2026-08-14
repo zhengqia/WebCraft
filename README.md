@@ -11,6 +11,8 @@
 
 新版 WebCraft 支持 VicroCode 密钥托管与克隆开发：编程助手可以把项目中的 API Key、Bearer Token、OAuth2、HMAC 等认证改为平台代理调用，使用稳定的项目内标识码，克隆后由每位使用者绑定自己的密钥，无需修改源码或项目 ID。技能还包含克隆前敏感文件/硬编码密钥预检。
 
+WebCraft v101 新增 API 端点托管开发规范：明确 `handler(payload, context)`、输入输出 Schema、受限工作区文件、国内镜像依赖安装、密钥托管、安全扫描、测试、版本审核和 `vco_api_` 调用流程，避免把 API 工具误做成 Flask 网站或访问服务器目录。
+
 
 ## About SKILL
 Develop and upload to VicroCode in one sentence — no more stressing over tech stack decisions and endless costs.
@@ -22,6 +24,8 @@ Virtually no cost, and virtually no technical burden.
 Supports installation in Claude Code, Codex, OpenClaw, Hermes, Coze, and other agents.
 
 WebCraft also supports VicroCode Credential Vault and clone-ready development. Coding assistants can replace API keys, bearer tokens, OAuth2, HMAC, and other direct authentication with the platform proxy, use stable in-project identifiers, and let each clone owner bind a separate credential without source or project-ID changes. A local clone-secret preflight is included.
+
+WebCraft v101 adds a dedicated API Endpoint Hosting contract covering `handler(payload, context)`, input/output schemas, root-only workspace files, domestic-mirror dependency setup, credential protection, security checks, testing, version review, and consumer `vco_api_` invocation. This prevents hosted tools from being incorrectly built as Flask websites or from touching server directories.
 
 
 ## 安装方法
