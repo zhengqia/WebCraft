@@ -13,6 +13,8 @@
 
 WebCraft v101 新增 API 端点托管开发规范：明确 `handler(payload, context)`、输入输出 Schema、受限工作区文件、国内镜像依赖安装、密钥托管、安全扫描、测试、版本审核和 `vco_api_` 调用流程，避免把 API 工具误做成 Flask 网站或访问服务器目录。
 
+WebCraft v102 新增知识库、数据库与后台资源管理规范：覆盖 LanceDB 多格式解析、图片描述/原图模式、Excel 转 Markdown、AI 自动分段与计费、网页爬虫库、知识库 API、SQLite 一致性备份、统一账号配额、管理员封锁申诉，以及暗色和移动端验收要求。详见 `references/knowledge-database-management.md`。
+
 
 ## About SKILL
 Develop and upload to VicroCode in one sentence — no more stressing over tech stack decisions and endless costs.
@@ -26,6 +28,8 @@ Supports installation in Claude Code, Codex, OpenClaw, Hermes, Coze, and other a
 WebCraft also supports VicroCode Credential Vault and clone-ready development. Coding assistants can replace API keys, bearer tokens, OAuth2, HMAC, and other direct authentication with the platform proxy, use stable in-project identifiers, and let each clone owner bind a separate credential without source or project-ID changes. A local clone-secret preflight is included.
 
 WebCraft v101 adds a dedicated API Endpoint Hosting contract covering `handler(payload, context)`, input/output schemas, root-only workspace files, domestic-mirror dependency setup, credential protection, security checks, testing, version review, and consumer `vco_api_` invocation. This prevents hosted tools from being incorrectly built as Flask websites or from touching server directories.
+
+WebCraft v102 adds a managed data-resource contract for LanceDB knowledge bases, SQLite databases, account-level quotas, parser selection, image handling, AI segmentation billing, crawler-library fallback, knowledge-base APIs, moderation appeals, backups, dark mode, and mobile acceptance checks. See `references/knowledge-database-management.md`.
 
 
 ## 安装方法

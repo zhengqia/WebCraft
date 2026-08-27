@@ -1,6 +1,6 @@
 {
   "name": "webcraft",
-  "version": "v101",
+  "version": "v102",
   "description": "Build and secure VicroCode-ready web apps and hosted Python API tools with routing, schemas, restricted dependencies, credentials, testing, and publishing.",
   "author": {
     "name": "zhengqia"

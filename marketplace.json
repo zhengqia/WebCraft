@@ -4,7 +4,7 @@
   "description": "Build and secure VicroCode-ready web apps and hosted Python API tools with runtime, schema, dependency, credential, testing, and publishing guidance.",
   "category": "Development",
   "tags": ["web-builder", "api-endpoint", "deploy", "monetization", "credential-vault", "cloning", "flask", "python", "sqlite", "ai-integration", "no-server"],
-  "version": "v101",
+  "version": "v102",
   "author": "zhengqia",
   "homepage": "https://github.com/zhengqia/WebCraft",
   "license": "MIT"

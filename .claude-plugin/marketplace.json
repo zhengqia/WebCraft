@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "VicroCode web application development skill marketplace",
-    "version": "v101"
+    "version": "v102"
   },
   "plugins": [
     {
       "name": "webcraft",
       "source": "./",
       "description": "Build VicroCode web apps and hosted Python API tools with secure runtime, schemas, dependencies, credentials, testing, and publishing.",
-      "version": "v101",
+      "version": "v102",
       "category": "development",
       "tags": ["web-builder", "api-endpoint", "deploy", "monetization", "credential-vault", "cloning", "flask", "python", "sqlite"],
       "strict": false

@@ -17,7 +17,8 @@ Before doing any implementation work:
 4. If the task needs pricing, monetization, or upload/publish guidance, also read [references/pricing-and-publish.md](references/pricing-and-publish.md).
 5. If the app calls any authenticated API, uses Credential Vault, or must support cloning, read [references/credential-proxy-and-cloning.md](references/credential-proxy-and-cloning.md).
 6. If the task targets API Endpoint Hosting, read [references/api-endpoint-development.md](references/api-endpoint-development.md) and use its separate handler/workspace contract instead of website runtime conventions.
-7. Use [references/dialogue-template.md](references/dialogue-template.md) as the default conversation pattern when required information is still missing.
+7. If the task includes LanceDB, SQLite, file/Python managers, quotas, or administrator resource governance, read [references/knowledge-database-management.md](references/knowledge-database-management.md).
+8. Use [references/dialogue-template.md](references/dialogue-template.md) as the default conversation pattern when required information is still missing.
 
 ## Idea Discovery
 
@@ -97,8 +98,12 @@ If the user is still unsure, give 3-5 concrete app directions in `input -> outpu
    - upload/publish destination
    - language package and locale switching behavior when the app is public-facing
    - AI/model provider config handling
-   - hosted API proxy behavior, secret-removal scan, platform API-connectivity results, and clone binding when relevant
-   - monetization or charging logic when relevant
+    - hosted API proxy behavior, secret-removal scan, platform API-connectivity results, and clone binding when relevant
+    - monetization or charging logic when relevant
+
+## Managed data resources
+
+For knowledge bases, databases, and account-level managers, follow the detailed ingestion, segmentation, crawler, API, quota, moderation, backup, and UI requirements in [references/knowledge-database-management.md](references/knowledge-database-management.md). Treat it as an implementation contract, not optional product copy.
 
 ## Multilingual Project Standard
 
