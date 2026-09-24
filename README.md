@@ -15,6 +15,10 @@ WebCraft v101 新增 API 端点托管开发规范：明确 `handler(payload, con
 
 WebCraft v102 新增知识库、数据库与后台资源管理规范：覆盖 LanceDB 多格式解析、图片描述/原图模式、Excel 转 Markdown、AI 自动分段与计费、网页爬虫库、知识库 API、SQLite 一致性备份、统一账号配额、管理员封锁申诉，以及暗色和移动端验收要求。详见 `references/knowledge-database-management.md`。
 
+WebCraft v103 新增 VicroCode 新手平台手册：Aether 视觉默认值、知识库/数据库/文件/Python 管理器配置、模型中心与托管 API 路由、运行期持久化、上传/发布/克隆流程、SEO 与多语言验收清单。详见 `references/vicrocode-platform-playbook.md`。
+
+WebCraft v104 新增「运行期数据文件」交付隔离规范：用 JSON / JS / CSV 存数据的项目必须在项目根放 `vicrocode.project.json` 声明 `runtime_data`、上传副本必须是空模板、运行期写入必须落在平台 runtime 目录，并新增 `scripts/scan_runtime_data.py` 一键预检。这样开发者用 AI 生成的项目可以一键上传，作者的数据不会随克隆或源码包交付给他人。详见 `references/runtime-data-and-cloning-isolation.md`。
+
 
 ## About SKILL
 Develop and upload to VicroCode in one sentence — no more stressing over tech stack decisions and endless costs.
@@ -29,7 +33,11 @@ WebCraft also supports VicroCode Credential Vault and clone-ready development. C
 
 WebCraft v101 adds a dedicated API Endpoint Hosting contract covering `handler(payload, context)`, input/output schemas, root-only workspace files, domestic-mirror dependency setup, credential protection, security checks, testing, version review, and consumer `vco_api_` invocation. This prevents hosted tools from being incorrectly built as Flask websites or from touching server directories.
 
-WebCraft v102 adds a managed data-resource contract for LanceDB knowledge bases, SQLite databases, account-level quotas, parser selection, image handling, AI segmentation billing, crawler-library fallback, knowledge-base APIs, moderation appeals, backups, dark mode, and mobile acceptance checks. See `references/knowledge-database-management.md`.
+WebCraft v102 adds knowledge-base, database, and admin resource management rules: LanceDB multi-format parsing, image description/original modes, Excel-to-Markdown, AI segmentation and billing, web crawling libraries, knowledge-base APIs, consistent SQLite backups, unified account quotas, admin block appeals, plus dark-mode and mobile acceptance checks. See `references/knowledge-database-management.md`.
+
+WebCraft v103 adds the VicroCode beginner platform playbook: Aether visual defaults, knowledge-base/database/file/Python manager setup, model-center and hosted-API routing, runtime persistence, upload/publish/clone flow, SEO and multilingual acceptance checks. See `references/vicrocode-platform-playbook.md` and `references/knowledge-database-management.md`.
+
+WebCraft v104 adds the runtime data delivery isolation contract: projects storing records in JSON / JS / CSV files must declare every runtime data path in `vicrocode.project.json`, upload empty templates instead of real records, and resolve runtime writes to the platform runtime directory. A new `scripts/scan_runtime_data.py` preflight catches undeclared data files, so an AI-built project can be uploaded in one click without leaking the author's data to clone recipients or source buyers. See `references/runtime-data-and-cloning-isolation.md`.
 
 
 ## 安装方法

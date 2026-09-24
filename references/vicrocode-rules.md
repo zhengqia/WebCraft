@@ -93,6 +93,33 @@ source-adjacent temp folders
 
 Do not assume the uploaded source package itself should contain a root `runtime/` folder. On VicroCode, `runtime/` is created and managed outside the uploaded source tree.
 
+### File Storage (JSON / JS / CSV)
+
+The same rule as SQLite applies: `pro/` holds templates, `runtime/` holds live data, and only
+`pro/` is delivered. Read [runtime-data-and-cloning-isolation.md](runtime-data-and-cloning-isolation.md)
+for the full contract.
+
+1. Declare every runtime data path in `vicrocode.project.json` at the project root:
+
+   ```json
+   { "schema": "vicrocode.project.v1", "storage_type": "json_file", "runtime_data": ["data/", "db.js"] }
+   ```
+
+2. Keep the uploaded copy of each declared file an empty template (`[]`, `{}`, or the seed
+   shape). Never ship the author's real records inside `pro/`.
+3. Resolve runtime data paths from the runner runtime directory (`VICRO_RUNTIME_DIR` or the
+   current working directory), never from `__file__` or a source-adjacent path.
+4. Copy the template into the runtime directory on first launch when the runtime copy is
+   missing — the same pattern as `pro/template.db` -> `runtime/data.db`.
+5. Do not mix code and data in one JS module. Keep logic in `db.js` and data in `data.json`,
+   then declare only `data.json`; a mixed file cannot be safely emptied and is reported as a
+   manual risk instead of being isolated.
+6. A pure static app cannot write server-side files. Do not design one whose only persistence
+   is a source-controlled JSON file; move that state behind a Python endpoint or a runtime file.
+7. Run `scripts/scan_runtime_data.py <project-dir>` before upload and fix every undeclared path.
+8. If a project was previously uploaded with real data inside `pro/`, re-save it once so the
+   platform recaptures a clean trusted baseline, then rebuild the clone version.
+
 ### SQLite
 
 1. Treat SQLite as runtime state, not as static project content.
@@ -222,15 +249,17 @@ When a VicroCode app breaks after upload:
 5. For post-success charge failures, check whether the current page is `/api/python-proxy/{id}` while the charge endpoint requires `/p/{id}` project-page origin.
 6. Check whether runtime files were written to `runtime/` and sync-safe directories.
 7. If the UI shows cached uploaded files but the backend reports missing files, check whether SQLite rows were lost while `runtime/storage/...` files still exist.
-8. If staged cached uploads are followed by a generation POST and only some slots go missing online, check whether the generation request carries file/blob snapshots or only a "use saved cache" flag.
-9. If only some cached upload slots are missing, check both `storage/reference_assets/` and complete historical `storage/uploads/*_{slot}.ext` groups before asking the user to upload again.
-10. If an async job starts successfully but status polling immediately returns `404` or "task not found", treat it as a temporary pending state. Retry for a bounded grace period and also check the gallery/result endpoint before declaring failure.
-11. If a background worker reports missing files/rows that the request handler just wrote, pass request-time snapshots of required parameters and runtime file paths into the worker instead of re-reading only fresh SQLite rows.
-12. Check SQLite location.
-13. Check whether the app relied on local browser state.
-14. For existing projects, check whether the bug is caused by old architecture assumptions before redesigning code.
-15. If monetization is involved, check whether charging was incorrectly triggered before success.
-16. Only then spend time on CSS or interaction polish.
+8. If a clone recipient or source-code buyer sees the author's records, check whether the offending JSON / JS / CSV file was declared in `vicrocode.project.json`, and whether the app writes to it through the runtime directory instead of a `__file__`-based path.
+9. If staged cached uploads are followed by a generation POST and only some slots go missing online, check whether the generation request carries file/blob snapshots or only a "use saved cache" flag.
+10. If only some cached upload slots are missing, check both `storage/reference_assets/` and complete historical `storage/uploads/*_{slot}.ext` groups before asking the user to upload again.
+11. If an async job starts successfully but status polling immediately returns `404` or "task not found", treat it as a temporary pending state. Retry for a bounded grace period and also check the gallery/result endpoint before declaring failure.
+12. If a background worker reports missing files/rows that the request handler just wrote, pass request-time snapshots of required parameters and runtime file paths into the worker instead of re-reading only fresh SQLite rows.
+13. Check SQLite location.
+14. Check whether runtime data files (JSON / JS / CSV) are declared and whether the app writes to them through the runtime directory.
+15. Check whether the app relied on local browser state.
+16. For existing projects, check whether the bug is caused by old architecture assumptions before redesigning code.
+17. If monetization is involved, check whether charging was incorrectly triggered before success.
+18. Only then spend time on CSS or interaction polish.
 
 ## 11. Common Bad Patterns
 
@@ -254,6 +283,9 @@ Avoid these:
 16. Keeping `.env`, private-key files, credential JSON, or provider credentials in a clone-ready upload
 17. Hardcoding `/api/project-proxy/{projectId}` or an original project ID instead of using the stable hosted API identifier
 18. Sending provider authentication from browser/Python project code after Credential Vault is enabled
+19. Storing records in `pro/` JSON / JS / CSV files without declaring them in `vicrocode.project.json`
+20. Uploading a data file that still contains the author's real records instead of an empty template
+21. Building a runtime data file path from `__file__` or another source-adjacent `pro/` path and writing to it
 
 ## 12. Acceptance Checklist
 
@@ -278,3 +310,5 @@ Before finishing:
 17. For image-heavy apps, confirm offscreen gallery/history/result images do not receive real `src` URLs during initial render, visible image placeholders show loading/progress, image downloads are limited or queued, and readiness does not wait for all images to download.
 18. For hosted APIs, confirm source uses `__vicro_proxy__/{identifier}/...` or the injected Python proxy environment and never contains provider credentials or a hardcoded project ID.
 19. For clone-ready projects, run `scripts/check_clone_secrets.py <project-dir>`, upload, select the hosted APIs, pass the platform source-rule and API-connectivity check, and only then submit clone review.
+20. For file-storage projects, confirm `vicrocode.project.json` lists every runtime data path, every declared file in the source package is an empty template, all writes resolve to the runtime directory, and `scripts/scan_runtime_data.py <project-dir>` reports no undeclared data files.
+21. Confirm no production data export (JSON dump, CSV export, `db.js` snapshot, uploaded media) is present anywhere in the uploaded source package.

@@ -165,6 +165,7 @@ Code must satisfy all of these before clone review:
 5. Updating a clone must preserve runtime data and credential bindings; do not move credentials into project files as an update workaround.
 6. A clone cannot expose, edit, download, or re-clone its source. Do not design UI that promises those capabilities.
 7. Clone purchase/renewal and upstream provider usage are separate. During active clone authorization, the clone owner does not pay the original developer again per project use, but third-party API/model costs may still apply to the clone owner's credential.
+8. Any runtime data kept in JSON / JS / CSV files instead of SQLite must be declared in `vicrocode.project.json` and must not contain the author's real records. Secrets are not the only thing a clone leaks — undeclared data files leak the author's data. See [runtime-data-and-cloning-isolation.md](runtime-data-and-cloning-isolation.md).
 
 ## 7. Error Handling
 
@@ -190,6 +191,7 @@ Before handoff, verify:
 6. Confirm the same source works after the project ID changes.
 7. Confirm request-count and concurrency limits do not trigger retry storms.
 8. Confirm the platform project check passes both source rules and selected hosted API connectivity before clone review is submitted.
+9. If the app stores records in files, confirm `vicrocode.project.json` declares every runtime data path, none of the declared files ship the author's real records, and `scripts/scan_runtime_data.py <project-dir>` reports no undeclared data files.
 
 ## 9. Repairing Platform Connectivity Failures
 

@@ -19,6 +19,8 @@ Before doing any implementation work:
 6. If the task targets API Endpoint Hosting, read [references/api-endpoint-development.md](references/api-endpoint-development.md) and use its separate handler/workspace contract instead of website runtime conventions.
 7. If the task includes LanceDB, SQLite, file/Python managers, quotas, or administrator resource governance, read [references/knowledge-database-management.md](references/knowledge-database-management.md).
 8. Use [references/dialogue-template.md](references/dialogue-template.md) as the default conversation pattern when required information is still missing.
+9. Load [references/vicrocode-platform-playbook.md](references/vicrocode-platform-playbook.md) when the user needs a platform resource, beginner setup guidance, model-center integration, upload/publish help, SEO, or multilingual routing.
+10. Read [references/runtime-data-and-cloning-isolation.md](references/runtime-data-and-cloning-isolation.md) whenever the project stores state in files (JSON / JS / CSV) instead of SQLite, or whenever the project may be cloned, delivered, or sold as source. This is mandatory before finishing such a project.
 
 ## Idea Discovery
 
@@ -59,39 +61,48 @@ If the user is still unsure, give 3-5 concrete app directions in `input -> outpu
    - current AI integration points
    - current publish/deploy assumptions
    - current breakage symptoms
-5. Classify the project:
+5. Use the VicroCode visual baseline by default: warm off-white surfaces, explicit dark foregrounds, restrained borders, Aether navigation, and readable 14px+ body copy. Read the palette reference before introducing a new visual system.
+6. Classify the project:
    - static frontend
    - frontend + Python/Flask
    - frontend + Python + SQLite
    - generation/media workflow
-6. If the app includes Python:
+7. If the app includes Python:
    - confirm whether the project should run on `3.9`, `3.10`, or `3.11`
    - default to `3.10` when the user has no hard requirement
    - do not silently design around `3.12+` because it is outside the platform's default supported range
-7. Fix pathing and persistence before UI polish:
+8. Fix pathing and persistence before UI polish:
    - entry route
    - same-origin platform API
    - `python-proxy` routing
    - platform-managed `runtime/storage` and `runtime/*.db`
    - refresh persistence and sync safety
-8. Prefer no-SDK implementation for new apps.
-9. If the app is an existing project, prefer minimal-compatible changes over unnecessary rewrites.
-10. If the app needs AI capability:
+9. Prefer no-SDK implementation for new apps.
+10. If the app is an existing project, prefer minimal-compatible changes over unnecessary rewrites.
+11. If the app needs AI capability:
    - collect the provider, base URL, endpoint, auth method, model, and capability type first
    - route calls by the provider's real protocol family and endpoint type
    - do not push any platform-managed model API by default
    - when Credential Vault or cloning is required, collect the hosted API identifier instead of asking the user to paste the raw secret into chat or source code
-11. If the app needs monetization:
+12. If the app needs monetization:
    - distinguish project access/download coin pricing from model API billing
    - explain which actions should charge coins and why
    - make coin deduction happen only after the charged action succeeds
    - if the action fails, do not deduct coins and do not design silent pre-charge behavior
    - propose pricing in coins with clear rationale
-12. If the app is meant to be published on VicroCode:
+13. If the app stores records in files instead of SQLite (JSON / JS / CSV), treat data delivery
+   isolation as part of the build, not an afterthought:
+   - create `vicrocode.project.json` in the project root and list every runtime data path in
+     `runtime_data`; this is what lets the developer upload in one click
+   - keep the uploaded copy of every declared file an empty template, never real records
+   - resolve all runtime writes to the platform runtime directory, never to a path built from
+     `__file__`
+   - run `scripts/scan_runtime_data.py <project-dir>` and fix anything it reports before upload
+14. If the app is meant to be published on VicroCode:
    - guide the user to `/project-upload-website`
    - then direct them to `/project-manage` for post-upload management
    - when cloning is planned, create each hosted API in `/credential-vault` before upload, replace direct provider calls, remove sensitive files, then run the project rule and API-connectivity check before submitting clone review
-13. End with a concrete acceptance check:
+15. End with a concrete acceptance check:
    - route correctness
    - refresh survival
    - runtime file placement
@@ -100,6 +111,7 @@ If the user is still unsure, give 3-5 concrete app directions in `input -> outpu
    - AI/model provider config handling
     - hosted API proxy behavior, secret-removal scan, platform API-connectivity results, and clone binding when relevant
     - monetization or charging logic when relevant
+    - declared runtime data paths, empty-template contents, and the `scan_runtime_data.py` result when the app uses file storage
 
 ## Managed data resources
 
@@ -177,6 +189,11 @@ When building or repairing a public tool:
 - Automatic cached-asset reconciliation must respect explicit user clears, but do not let an old runtime clear marker block seed/default assets that are intentionally shipped in the newly uploaded source package. The clear marker should only block opportunistic restoration from historical runtime/source `storage/uploads` sets until the user uploads a new asset.
 - Do not reference `runtime/...` files directly from frontend HTML, script, or asset URLs in the uploaded source package.
 - Exclude local runtime artifacts such as `runtime/`, `__pycache__/`, logs, and local temp outputs from the upload bundle unless the user explicitly asks for a local-only package.
+- If the project stores records in files instead of SQLite (JSON, JSONL, CSV, `db.js`, `store.js`, `data/`), declare every runtime data path in `vicrocode.project.json` at the project root using the `runtime_data` array. Without this declaration the platform cannot tell data files apart from source files, and the author's records will be delivered to buyers and clone recipients.
+- Never upload a source package whose data files already contain the author's real records. Keep the uploaded copy an empty template (`[]`, `{}`, or the seed shape) and let runtime data live in the platform runtime directory.
+- Never resolve a runtime data file path from `__file__` or any source-adjacent `pro/` path for writes. Use the runner runtime directory, exactly like `runtime/*.db`.
+- Do not mix data literals and helper functions in one JS module. Split logic into `db.js` and data into `data.json`, then declare only `data.json`; the platform cannot safely empty a file that also contains code.
+- Run `scripts/scan_runtime_data.py <project-dir>` before upload whenever the app uses file storage, and fix every undeclared path it reports.
 - Do not rely on `localStorage` alone for core state.
 - Do not use `proxy-project-by-id` as the default runtime path for Python projects.
 - Do not hardcode localhost or fixed absolute asset paths into deliverables intended for VicroCode.
@@ -213,11 +230,28 @@ When building or repairing a public tool:
 
 When the project will be uploaded to VicroCode:
 
-1. Keep the source package limited to source assets such as `app.py`, `index.html`, `public/`, `templates/`, `static/`, and optional template `.db` files.
+1. Keep the source package limited to source assets such as `app.py`, `index.html`, `public/`, `templates/`, `static/`, optional template `.db` files, and `vicrocode.project.json`.
 2. Assume the platform will place that source under `User_File/{username}/proname/{project_directory}/pro/`.
 3. Assume the platform will create and manage `User_File/{username}/proname/{project_directory}/runtime/` separately at run time.
 4. Do not present a project-local root `runtime/` folder as part of the recommended upload structure.
 5. For local development, prefer a compatibility path that keeps template/state files inside the project directory when platform runtime is absent, so the uploaded directory still contains the needed initial data.
+6. Make sure the uploaded copy of every data file is an empty template. The platform delivers `pro/` to buyers, so anything the author wrote there is delivered too.
+7. Include `vicrocode.project.json` even when the app has no file storage (`"runtime_data": []`). It documents the storage decision and keeps the upload page from guessing.
+
+## File-Storage Data Safety
+
+When records live in JSON / JS / CSV files instead of SQLite:
+
+- The platform's rule is the same as for SQLite: `pro/` holds a template, `runtime/` holds the live data, and only `pro/` is delivered.
+- Declare the paths in `vicrocode.project.json` so the upload page auto-fills
+  `dynamic_data_paths` and the developer uploads in one click.
+- Before delivery the platform replaces each declared file with the author's uploaded
+  content (or an empty template when no baseline exists), backs the author's data up to
+  `User_File/_dynamic_data_backups/`, and never modifies the author's own folder.
+- At runtime the platform copies the templates into `runtime/` and redirects reads/writes of
+  those paths from `pro/` to `runtime/`.
+- Read [references/runtime-data-and-cloning-isolation.md](references/runtime-data-and-cloning-isolation.md)
+  for the full contract, recommended project shapes, and the acceptance checklist.
 
 ## AI Integration Guidance
 
