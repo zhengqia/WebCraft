@@ -23,6 +23,8 @@ WebCraft v105 新增「智能体一键上传与自动部署」：开发智能体
 
 WebCraft v106 统一令牌前缀：智能部署令牌由 `sk-wc-` 调整为 `vco-wc-`，数据库令牌由 `vco_YYYYMMDD_` 调整为 `vco-data-`（旧前缀令牌继续可用）。
 
+WebCraft v107 修正智能体部署流程，解决三个会导致「改了代码但网址没变」的隐蔽问题：平台在项目运行中不允许写入文件，`deploy` 现在会先停止项目、上传后自动重新上线；上传幂等键改为每次请求唯一（此前按内容推导，重复上传会被平台当成重复请求，返回成功却不写文件）；Python 启动失败时改为从进程日志诊断真实原因，缺依赖、语法错误等确定性故障不再盲目重试，并返回修复建议与日志尾部。
+
 
 ## About SKILL
 Develop and upload to VicroCode in one sentence — no more stressing over tech stack decisions and endless costs.
@@ -46,6 +48,8 @@ WebCraft v104 adds the runtime data delivery isolation contract: projects storin
 WebCraft v105 adds one-click agent upload and auto-deploy: a `vco-wc-` 智能部署 token lets the coding agent upload or update a project without a browser login (title, description and TDK are generated automatically), deploy Python projects online with automatic retries and structured failure diagnosis, and report the run URL. The local `.vicrocode/deploy.json` record is never uploaded or delivered. See `references/agent-deploy.md`.
 
 WebCraft v106 unifies token prefixes: the agent-deploy token moves from `sk-wc-` to `vco-wc-`, and the standalone-database token from `vco_YYYYMMDD_` to `vco-data-` (legacy prefixes keep working).
+
+WebCraft v107 hardens the agent deploy flow against three silent "code changed but the site did not" failures: the platform refuses file writes while an app is running, so `deploy` now stops the project, uploads, and automatically brings it back online; the upload idempotency key is now unique per request (content-derived keys made repeat uploads return a cached success without writing files); and Python startup failures are diagnosed from the process log, so deterministic problems such as a missing dependency or a syntax error are no longer retried blindly and come back with a fix suggestion plus the log tail.
 
 
 ## 安装方法

@@ -4,7 +4,7 @@
   "description": "Build and secure VicroCode-ready web apps and hosted Python API tools with runtime, storage, data-delivery isolation, schema, dependency, credential, testing, and publishing guidance, plus one-click agent upload/deploy via the vco-wc- smart-deploy token.",
   "category": "Development",
   "tags": ["web-builder", "api-endpoint", "deploy", "agent-deploy", "monetization", "credential-vault", "cloning", "runtime-data", "flask", "python", "sqlite", "ai-integration", "no-server"],
-  "version": "v106",
+  "version": "v107",
   "author": "zhengqia",
   "homepage": "https://github.com/zhengqia/WebCraft",
   "license": "MIT"

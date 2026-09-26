@@ -559,6 +559,46 @@ def _print_payload(payload: dict, as_json: bool, problems: list[str] | None = No
     return 0
 
 
+def _project_state(token: str, base_url: str, project_id: int) -> dict:
+    """查目标项目当前状态（失败时返回空字典，不影响主流程）。"""
+    if not token or not project_id:
+        return {}
+    status, payload = http_call(
+        base_url=base_url,
+        path=f"/api/agent-deploy/v1/projects/{project_id}/deploy/status/",
+        token=token,
+        method="GET",
+    )
+    if status >= 400:
+        return {}
+    return payload.get("data") or {}
+
+
+def _stop_project(token: str, base_url: str, project_id: int) -> bool:
+    """停止运行中的项目（幂等：本来没运行也算成功）。"""
+    if not token or not project_id:
+        return False
+    status, payload = http_call(
+        base_url=base_url,
+        path=f"/api/agent-deploy/v1/projects/{project_id}/deploy/",
+        token=token,
+        json_body={"action": "stop"},
+    )
+    if status >= 400 or payload.get("status") != "ok":
+        info(f"[提示] 停止未成功：{payload.get('message') or status}")
+        return False
+    return True
+
+
+def _start_project(token: str, base_url: str, project_id: int) -> tuple[int, dict]:
+    return http_call(
+        base_url=base_url,
+        path=f"/api/agent-deploy/v1/projects/{project_id}/deploy/",
+        token=token,
+        json_body={"action": "run", "max_attempts": 3},
+    )
+
+
 def command_deploy(args) -> int:
     token, base_url, record = resolve_config(args)
     project_dir = Path(args.dir).expanduser().resolve()
@@ -591,11 +631,6 @@ def command_deploy(args) -> int:
             info(f"网址：{record['run_url']}")
         return 0
 
-    directory_name = str(manifest.get("directory_name") or record.get("directory_name") or project_dir.name)
-    idempotency_key = hashlib.sha256(
-        f"{directory_name}|{manifest.get('project_id') or ''}|{digest}".encode("utf-8")
-    ).hexdigest()[:48]
-
     body_files: list[tuple[str, str, bytes]] = []
     paths: dict[str, str] = {}
     for index, (relative, absolute) in enumerate(files):
@@ -610,20 +645,51 @@ def command_deploy(args) -> int:
         ("manifest", json.dumps(manifest, ensure_ascii=False)),
         ("online_files_paths", json.dumps(paths, ensure_ascii=False)),
     ]
-    info(f"正在上传 {len(files)} 个文件到 {base_url} …")
-    status, payload = http_call(
-        base_url=base_url,
-        path="/api/agent-deploy/v1/deploy/",
-        token=token,
-        fields=fields,
-        files=body_files,
-        idempotency_key=idempotency_key,
-    )
+    # Python 项目：平台不允许在运行中更新文件（可能直接拒绝，也可能静默不生效），
+    # 所以先停、传完再自动恢复上线，避免出现「改了代码但网址没变」。
+    target_id = int(manifest.get("project_id") or record.get("project_id") or 0)
+    target_state = _project_state(token, base_url, target_id)
+    deploy_status = str(target_state.get("deploy_status") or "")
+    is_python_target = bool(target_state.get("is_python"))
+    was_live = bool(target_state.get("healthy")) or deploy_status in ("success", "running")
+    # 上次部署失败说明进程已崩：也要先停一次，清掉平台残留的「运行中」记录
+    restart_after = was_live or deploy_status == "failed"
+    stopped_for_upload = False
+    if is_python_target and restart_after:
+        info("检测到 Python 项目已部署过：先停止，以便写入新文件…")
+        stopped_for_upload = _stop_project(token, base_url, target_id)
+
+    def _upload_once() -> tuple[int, dict]:
+        info(f"正在上传 {len(files)} 个文件到 {base_url} …")
+        # 幂等键必须每次请求都唯一：平台会缓存同键请求的响应，
+        # 若按键推导（例如含内容哈希），重复上传同一份内容会被当成重复请求，
+        # 结果「返回成功但不写文件」。内容未变化的去重由上面的 last_package_hash 在本地完成。
+        return http_call(
+            base_url=base_url,
+            path="/api/agent-deploy/v1/deploy/",
+            token=token,
+            fields=fields,
+            files=body_files,
+            idempotency_key=uuid.uuid4().hex,
+        )
+
+    status, payload = _upload_once()
+    if status >= 400 and "正在运行中" in str(payload.get("message") or ""):
+        # 兜底：状态查询没看出在运行，但平台仍拒绝更新 → 停止后重试一次
+        info("[提示] 项目正在运行导致更新被拒：先停止后重试…")
+        if _stop_project(token, base_url, target_id):
+            stopped_for_upload = True
+            restart_after = True
+            status, payload = _upload_once()
     if status >= 400 or payload.get("status") != "ok":
         code = payload.get("code") or f"HTTP_{status}"
         info(f"[失败] {code}: {payload.get('message')}")
         if code == "DIRECTORY_NAME_TAKEN":
             info("建议：换一个 directory_name，或先用 --directory-name 指定唯一名称。")
+        if stopped_for_upload:
+            # 为了上传把线上停掉了，上传又失败：赶紧恢复运行，避免留下一个挂掉的站点
+            info("[提示] 上传失败，正在把项目恢复到运行状态…")
+            _start_project(token, base_url, target_id)
         if args.json:
             print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 1
@@ -665,7 +731,20 @@ def command_deploy(args) -> int:
         info(f"[提示] {warning}")
     if data.get("is_python"):
         info(f"Python 项目：入口 {data.get('entry_file') or '-'}，框架 {data.get('framework') or '-'}")
-        info("如需部署上线，请运行：python scripts/vicrocode_deploy.py run --dir .")
+        if restart_after:
+            info("正在自动重新部署，保持/恢复网址可访问…")
+            run_status, run_payload = _start_project(token, base_url, int(data.get("project_id") or 0))
+            if run_status >= 400 or run_payload.get("status") != "ok":
+                info(
+                    f"[提示] 自动重新部署未提交成功：{run_payload.get('message') or run_status}"
+                    "，请手动执行 run"
+                )
+            elif getattr(args, "no_wait", False):
+                info("已提交重新部署，可用 status 查看进度。")
+            else:
+                return _poll_deploy(args, token, base_url, int(data.get("project_id") or 0))
+        else:
+            info("如需部署上线，请运行：python scripts/vicrocode_deploy.py run --dir .")
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
@@ -687,11 +766,30 @@ def command_run(args) -> int:
     if not project_id:
         return die("未找到 project_id：请先执行一次 deploy")
 
+    # 平台的上传只写文件、不会替换运行中的进程，而 start 又是幂等的
+    # （已在运行会直接返回成功），所以「部署过」就必须重启，否则可能：
+    #   1. 新代码不生效（进程还在跑老代码）；
+    #   2. 崩溃后残留的「已运行」记录把 start 拦住，导致救不回来。
+    action = "restart" if getattr(args, "restart", False) else "run"
+    state_status, state_payload = http_call(
+        base_url=base_url,
+        path=f"/api/agent-deploy/v1/projects/{project_id}/deploy/status/",
+        token=token,
+        method="GET",
+    )
+    if state_status < 400:
+        state = state_payload.get("data") or {}
+        deploy_status = str(state.get("deploy_status") or "")
+        if state.get("healthy") or deploy_status in ("success", "failed"):
+            if action != "restart":
+                info(f"检测到项目已部署过（{deploy_status or 'unknown'}）：本次将重启以加载最新代码")
+            action = "restart"
+
     status, payload = http_call(
         base_url=base_url,
         path=f"/api/agent-deploy/v1/projects/{project_id}/deploy/",
         token=token,
-        json_body={"action": "run", "max_attempts": args.max_attempts},
+        json_body={"action": action, "max_attempts": args.max_attempts},
     )
     if status >= 400 or payload.get("status") != "ok":
         info(f"[失败] {payload.get('code') or status}: {payload.get('message')}")
@@ -860,6 +958,9 @@ def build_parser() -> argparse.ArgumentParser:
     add_common(p, with_manifest=True)
     p.add_argument("--force", action="store_true", help="忽略本地体积检查与内容未变化跳过")
     p.add_argument("--no-save", action="store_true", help="不写入 .vicrocode/deploy.json")
+    p.add_argument("--no-wait", action="store_true", help="自动重新部署后不等待结果")
+    p.add_argument("--interval", type=float, default=5.0, help="轮询间隔秒")
+    p.add_argument("--wait-seconds", type=float, default=180.0, help="自动重新部署最长等待秒")
     p.set_defaults(func=command_deploy)
 
     p = sub.add_parser("run", help="部署/重启 Python 项目并等待结果")
@@ -868,6 +969,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--interval", type=float, default=5.0, help="轮询间隔秒")
     p.add_argument("--wait-seconds", type=float, default=300.0, help="最长等待秒")
     p.add_argument("--no-wait", action="store_true", help="提交后立即返回")
+    p.add_argument("--restart", action="store_true", help="强制重启（默认仅在已在线时自动重启）")
     p.set_defaults(func=command_run)
 
     p = sub.add_parser("status", help="查询部署状态与日志")
