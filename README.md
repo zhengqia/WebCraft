@@ -19,6 +19,10 @@ WebCraft v103 新增 VicroCode 新手平台手册：Aether 视觉默认值、知
 
 WebCraft v104 新增「运行期数据文件」交付隔离规范：用 JSON / JS / CSV 存数据的项目必须在项目根放 `vicrocode.project.json` 声明 `runtime_data`、上传副本必须是空模板、运行期写入必须落在平台 runtime 目录，并新增 `scripts/scan_runtime_data.py` 一键预检。这样开发者用 AI 生成的项目可以一键上传，作者的数据不会随克隆或源码包交付给他人。详见 `references/runtime-data-and-cloning-isolation.md`。
 
+WebCraft v105 新增「智能体一键上传与自动部署」：开发智能体用「我的令牌 - 智能部署」生成的 `vco-wc-` 令牌即可免浏览器登录上传/更新项目（标题、描述、TDK 自动生成），Python 项目可一键自动部署并返回网址，部署失败会返回结构化原因与日志尾部；本地记录文件 `.vicrocode/deploy.json` 永不上传、也不随源码交付。详见 `references/agent-deploy.md`。
+
+WebCraft v106 统一令牌前缀：智能部署令牌由 `sk-wc-` 调整为 `vco-wc-`，数据库令牌由 `vco_YYYYMMDD_` 调整为 `vco-data-`（旧前缀令牌继续可用）。
+
 
 ## About SKILL
 Develop and upload to VicroCode in one sentence — no more stressing over tech stack decisions and endless costs.
@@ -38,6 +42,10 @@ WebCraft v102 adds knowledge-base, database, and admin resource management rules
 WebCraft v103 adds the VicroCode beginner platform playbook: Aether visual defaults, knowledge-base/database/file/Python manager setup, model-center and hosted-API routing, runtime persistence, upload/publish/clone flow, SEO and multilingual acceptance checks. See `references/vicrocode-platform-playbook.md` and `references/knowledge-database-management.md`.
 
 WebCraft v104 adds the runtime data delivery isolation contract: projects storing records in JSON / JS / CSV files must declare every runtime data path in `vicrocode.project.json`, upload empty templates instead of real records, and resolve runtime writes to the platform runtime directory. A new `scripts/scan_runtime_data.py` preflight catches undeclared data files, so an AI-built project can be uploaded in one click without leaking the author's data to clone recipients or source buyers. See `references/runtime-data-and-cloning-isolation.md`.
+
+WebCraft v105 adds one-click agent upload and auto-deploy: a `vco-wc-` 智能部署 token lets the coding agent upload or update a project without a browser login (title, description and TDK are generated automatically), deploy Python projects online with automatic retries and structured failure diagnosis, and report the run URL. The local `.vicrocode/deploy.json` record is never uploaded or delivered. See `references/agent-deploy.md`.
+
+WebCraft v106 unifies token prefixes: the agent-deploy token moves from `sk-wc-` to `vco-wc-`, and the standalone-database token from `vco_YYYYMMDD_` to `vco-data-` (legacy prefixes keep working).
 
 
 ## 安装方法

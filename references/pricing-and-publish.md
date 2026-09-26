@@ -4,7 +4,13 @@ Load this file when the task involves monetization, charging, upload, or publish
 
 ## 1. Publish Destination
 
-When the user finishes building a VicroCode website app, guide them to:
+When the user finishes building a VicroCode website app, prefer the agent one-click upload:
+run `python scripts/vicrocode_deploy.py deploy --dir <project>` and hand the user the printed
+run URL (see `references/agent-deploy.md`). It runs the exact same server-side rules as the
+browser upload page and keeps a local `.vicrocode/deploy.json` record so later updates need no
+re-asking.
+
+When the user wants to do it by hand, guide them to:
 
 1. Credential setup for authenticated APIs: `/credential-vault`
 2. Upload/publish entry: `/project-upload-website`

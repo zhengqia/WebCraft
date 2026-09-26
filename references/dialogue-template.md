@@ -83,7 +83,17 @@ If the user is building for VicroCode hosting but has not mentioned publish flow
 
 ```text
 开发完成后，你是否要把它上传到 VicroCode 平台发布？
-如果要，我会按 /project-upload-website 和 /project-manage 的流程来收尾。
+如果要，我会用一键上传帮你完成（标题、描述、TDK 都自动生成），上传完直接给你网址。
+```
+
+If the user says yes, use the agent-deploy flow (`references/agent-deploy.md`). If a
+`vco-wc-` token is not configured yet, ask for it once:
+
+```text
+需要你提供一次「智能部署」令牌（以后就自动了）：
+1. 打开 https://www.vicoco.cn/user-center/my-tokens?tab=api-keys&create=deploy
+2. 点「创建」，复制 vco-wc- 开头的令牌粘贴给我
+（令牌只保存在你本地 .vicrocode/deploy.json，不会上传到平台）
 ```
 
 ## 5. Required Guidance When No API Credential Is Present
@@ -111,7 +121,7 @@ When finishing a build, the skill should normally remind the user of the next pl
 ```text
 如果你要在 VicroCode 上发布：
 1. 有认证 API 时，先去 /credential-vault 创建托管 API 并完成代码改造
-2. 再去 /project-upload-website 上传项目
-3. 最后去 /project-manage 管理项目、定价和发布状态
+2. 一键上传：让我直接帮你上传（标题/描述/TDK 自动生成），完成后给你网址
+3. 需要手动控制时，再去 /project-upload-website 上传、/project-manage 管理定价和发布
 4. 如果开启克隆：先扫描通过，再提交管理员审核
 ```

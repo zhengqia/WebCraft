@@ -33,6 +33,8 @@ EXCLUDED_DIR_NAMES = {
     "runtime", "sourdown", ".git", ".svn", ".hg", "__pycache__", ".pytest_cache",
     ".mypy_cache", ".ruff_cache", "node_modules", ".idea", ".vscode", "venv", ".venv",
     "env", "logs", "log", "tmp", "temp", ".cache", "dist", "build",
+    # 智能体本地记录目录（存智能部署令牌与项目 ID）：不是运行期数据，跳过
+    ".vicrocode",
 }
 
 DATA_FILE_STEMS = {

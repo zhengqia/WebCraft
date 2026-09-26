@@ -24,9 +24,13 @@ TEXT_SUFFIXES = {
 EXCLUDED_DIR_NAMES = {
     "runtime", "sourdown", ".git", ".svn", "__pycache__", ".pytest_cache", ".mypy_cache",
     ".idea", ".vscode", "logs", "log", "tmp", "temp",
+    # 智能体本地记录目录（存智能部署令牌）：不会上传，跳过扫描
+    ".vicrocode",
 }
 KNOWN_SECRET_PATTERNS = (
     ("OpenAI-style key", re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b")),
+    # 平台自有令牌：智能部署（vco-wc-）与独立数据库（vco-data-）
+    ("VicroCode platform token", re.compile(r"\bvco-(?:wc|data)-[A-Za-z0-9_\-]{12,}\b")),
     ("AWS access key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
     ("GitHub token", re.compile(r"\b(?:ghp|github_pat)_[A-Za-z0-9_]{20,}\b")),
     ("Stripe secret", re.compile(r"\bsk_(?:live|test)_[A-Za-z0-9]{16,}\b")),

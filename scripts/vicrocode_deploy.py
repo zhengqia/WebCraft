@@ -1,0 +1,903 @@
+#!/usr/bin/env python3
+"""Upload / update a project on VicroCode from the command line, and deploy it.
+
+This script is the agent-facing entry point for the "智能部署" (agent deploy)
+token. It talks to ``/api/agent-deploy/v1/*`` with a ``vco-wc-...`` token, so no
+browser login is needed.
+
+It keeps a local record file (``<project>/.vicrocode/deploy.json``) with the
+token, project id and site, so later runs only need ``deploy --dir .``.
+
+The record file MUST never be uploaded: the platform rejects it too, but this
+script filters it out before building the request.
+
+Only the Python standard library is used.
+
+Usage::
+
+    python scripts/vicrocode_deploy.py whoami   --dir . --token vco-wc-xxxx
+    python scripts/vicrocode_deploy.py preflight --dir .
+    python scripts/vicrocode_deploy.py deploy   --dir . --manifest manifest.json
+    python scripts/vicrocode_deploy.py deploy   --dir . --title "AI 去水印工具"
+    python scripts/vicrocode_deploy.py run      --dir .      # start Python deploy
+    python scripts/vicrocode_deploy.py status   --dir .      # deploy status
+    python scripts/vicrocode_deploy.py stop     --dir .      # stop the app
+
+Exit codes::
+
+    0  success
+    1  platform rejected the request (the error code is printed)
+    2  usage / local environment problem (missing token, bad directory, ...)
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import mimetypes
+import os
+import re
+import socket
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+from pathlib import Path
+
+RECORD_DIR = ".vicrocode"
+RECORD_FILE = "deploy.json"
+RECORD_SCHEMA = "vicrocode.agent-deploy.v1"
+MANIFEST_FILENAME = "vicrocode.project.json"
+
+SITE_BASES = {
+    "cn": "https://www.vicoco.cn",
+    "global": "https://www.vicrocode.com",
+}
+DEFAULT_SITE = "cn"
+DEFAULT_TIMEOUT = 300
+NETWORK_RETRIES = 3
+LOG_TAIL_LINES = 100
+
+# Mirrors backend/api/services/project_intake_service.py
+IGNORED_DIR_PARTS = {
+    ".vicrocode", ".git", ".hg", ".svn", ".idea", ".vscode", "node_modules",
+    "__pycache__", ".venv", "venv", ".mypy_cache", ".pytest_cache", ".ruff_cache",
+    ".next", ".nuxt", "runtime", "sourdown", "logs", "log",
+}
+IGNORED_FILE_NAMES = {
+    ".ds_store", "thumbs.db", "desktop.ini", ".npmrc", ".pypirc", ".netrc",
+}
+IGNORED_FILE_SUFFIXES = (".pyc", ".pyo", ".pyd", ".log")
+SECRET_FILE_SUFFIXES = (".pem", ".key", ".pfx", ".p12", ".keystore", ".jks")
+SECRET_FILE_PREFIXES = ("id_rsa", "id_dsa", "id_ecdsa", "id_ed25519")
+
+MAX_SINGLE_FILE_BYTES = 20 * 1024 * 1024
+MAX_TOTAL_BYTES = 90 * 1024 * 1024
+
+
+# ---------------------------------------------------------------------------
+# small helpers
+# ---------------------------------------------------------------------------
+
+def die(message: str, code: int = 2) -> int:
+    print(f"ERROR: {message}", file=sys.stderr)
+    return code
+
+
+def info(message: str) -> None:
+    print(message)
+
+
+def normalize_rel_path(raw: str) -> str:
+    text = str(raw or "").replace("\\", "/").strip()
+    if text.startswith("./"):
+        text = text[2:]
+    parts = [part for part in text.split("/") if part not in ("", ".")]
+    if not parts or any(part == ".." for part in parts):
+        return ""
+    if re.match(r"^[a-zA-Z]:", parts[0]):
+        return ""
+    return "/".join(parts)
+
+
+def is_ignored(relative: str) -> bool:
+    parts = [part.lower() for part in relative.split("/")]
+    if any(part in IGNORED_DIR_PARTS for part in parts[:-1]):
+        return True
+    if parts[-1] in IGNORED_DIR_PARTS:
+        return True
+    name = parts[-1]
+    if name in IGNORED_FILE_NAMES:
+        return True
+    if name == ".env" or name.startswith(".env."):
+        return True
+    if name.endswith(SECRET_FILE_SUFFIXES):
+        return True
+    if any(name.startswith(prefix) for prefix in SECRET_FILE_PREFIXES):
+        return True
+    if name.endswith(IGNORED_FILE_SUFFIXES):
+        return True
+    return False
+
+
+def ascii_filename(basename: str, index: int) -> str:
+    """HTTP headers must stay ASCII; the real path travels in online_files_paths."""
+    cleaned = re.sub(r"[^A-Za-z0-9._-]", "_", basename).strip("._")
+    if not cleaned:
+        cleaned = f"file{index}"
+    return cleaned[:120]
+
+
+# ---------------------------------------------------------------------------
+# record file
+# ---------------------------------------------------------------------------
+
+def record_path(project_dir: Path) -> Path:
+    return project_dir / RECORD_DIR / RECORD_FILE
+
+
+def read_json_file(path: Path) -> dict:
+    """读取 JSON 文件（容忍 Windows 工具写出的 UTF-8 BOM）。"""
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig", errors="ignore"))
+    except (OSError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def load_record(project_dir: Path) -> dict:
+    return read_json_file(record_path(project_dir))
+
+
+def save_record(project_dir: Path, record: dict) -> Path:
+    path = record_path(project_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def warn_if_not_gitignored(project_dir: Path) -> None:
+    """The record file holds a token; remind the user to keep it out of git."""
+    gitignore = project_dir / ".gitignore"
+    if not (project_dir / ".git").is_dir() and not gitignore.is_file():
+        return
+    try:
+        text = gitignore.read_text(encoding="utf-8", errors="ignore") if gitignore.is_file() else ""
+    except OSError:
+        text = ""
+    if RECORD_DIR not in text:
+        info(f"提示：建议把 {RECORD_DIR}/ 加入 .gitignore，避免令牌被提交到代码仓库。")
+
+
+# ---------------------------------------------------------------------------
+# local manifest
+# ---------------------------------------------------------------------------
+
+def read_project_manifest(project_dir: Path) -> dict:
+    """Read vicrocode.project.json (runtime data declaration)."""
+    return read_json_file(project_dir / MANIFEST_FILENAME)
+
+
+def declared_runtime_data(manifest: dict) -> list[str]:
+    if not isinstance(manifest, dict):
+        return []
+    storage = manifest.get("storage")
+    raw = None
+    if isinstance(storage, dict):
+        raw = storage.get("paths") or storage.get("runtime_data")
+    if raw is None:
+        raw = (
+            manifest.get("runtime_data")
+            or manifest.get("dynamic_data_paths")
+            or manifest.get("data_paths")
+            or []
+        )
+    if not isinstance(raw, list):
+        return []
+    result = []
+    for item in raw:
+        value = item if isinstance(item, str) else (item or {}).get("path", "")
+        path = normalize_rel_path(value)
+        if path and path not in result:
+            result.append(path)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# file scan
+# ---------------------------------------------------------------------------
+
+def collect_files(project_dir: Path, explicit: list[str] | None = None) -> tuple[list[tuple[str, Path]], list[str]]:
+    """Return (files, skipped) where files is [(relative, absolute)]."""
+    files: list[tuple[str, Path]] = []
+    skipped: list[str] = []
+    if explicit:
+        for raw in explicit:
+            relative = normalize_rel_path(raw)
+            if not relative or is_ignored(relative):
+                skipped.append(raw)
+                continue
+            absolute = project_dir / relative
+            if absolute.is_file():
+                files.append((relative, absolute))
+            else:
+                skipped.append(f"{raw} (不存在)")
+        return sorted(files, key=lambda item: item[0]), skipped
+
+    for current, dirs, names in os.walk(project_dir):
+        dirs[:] = [name for name in dirs if name.lower() not in IGNORED_DIR_PARTS]
+        current_path = Path(current)
+        for name in sorted(names):
+            absolute = current_path / name
+            relative = normalize_rel_path(str(absolute.relative_to(project_dir).as_posix()))
+            if not relative:
+                continue
+            if is_ignored(relative):
+                skipped.append(relative)
+                continue
+            files.append((relative, absolute))
+    return sorted(files, key=lambda item: item[0]), skipped
+
+
+def package_hash(files: list[tuple[str, Path]]) -> str:
+    digest = hashlib.sha256()
+    for relative, absolute in files:
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        try:
+            with absolute.open("rb") as handle:
+                while True:
+                    chunk = handle.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    digest.update(chunk)
+        except OSError:
+            digest.update(b"<unreadable>")
+        digest.update(b"\n")
+    return f"sha256:{digest.hexdigest()}"
+
+
+def check_sizes(files: list[tuple[str, Path]]) -> list[str]:
+    problems: list[str] = []
+    total = 0
+    for relative, absolute in files:
+        try:
+            size = absolute.stat().st_size
+        except OSError:
+            continue
+        total += size
+        if size > MAX_SINGLE_FILE_BYTES:
+            problems.append(f"{relative} 单文件超过 20MB，请改用外部资源或不放入该项目")
+    if total > MAX_TOTAL_BYTES:
+        problems.append(f"项目总大小 {total / 1048576:.1f}MB 超过 90MB，请精简后再上传")
+    return problems
+
+
+# ---------------------------------------------------------------------------
+# HTTP
+# ---------------------------------------------------------------------------
+
+def encode_multipart(
+    fields: list[tuple[str, str]],
+    files: list[tuple[str, str, bytes]],
+) -> tuple[bytes, str]:
+    """Build a multipart/form-data body with only the standard library."""
+    boundary = f"----VicroCodeAgent{uuid.uuid4().hex}"
+    parts: list[bytes] = []
+    for name, value in fields:
+        parts.append(f"--{boundary}\r\n".encode("utf-8"))
+        parts.append(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"))
+        parts.append(str(value).encode("utf-8"))
+        parts.append(b"\r\n")
+    for name, filename, content in files:
+        content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        parts.append(f"--{boundary}\r\n".encode("utf-8"))
+        parts.append(
+            f'Content-Disposition: form-data; name="{name}"; filename="{filename}"\r\n'.encode("utf-8")
+        )
+        parts.append(f"Content-Type: {content_type}\r\n\r\n".encode("utf-8"))
+        parts.append(content)
+        parts.append(b"\r\n")
+    parts.append(f"--{boundary}--\r\n".encode("utf-8"))
+    return b"".join(parts), f"multipart/form-data; boundary={boundary}"
+
+
+def http_call(
+    *,
+    base_url: str,
+    path: str,
+    token: str,
+    method: str = "POST",
+    fields: list[tuple[str, str]] | None = None,
+    files: list[tuple[str, str, bytes]] | None = None,
+    json_body: dict | None = None,
+    idempotency_key: str = "",
+    timeout: int = DEFAULT_TIMEOUT,
+) -> tuple[int, dict]:
+    url = f"{base_url.rstrip('/')}{path}"
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {token}",
+        "User-Agent": "VicroCode-WebCraft-Deploy/1.0",
+    }
+    data = None
+    if json_body is not None:
+        data = json.dumps(json_body, ensure_ascii=False).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    elif files is not None:
+        data, content_type = encode_multipart(fields or [], files)
+        headers["Content-Type"] = content_type
+    elif fields:
+        data = urllib.parse.urlencode(fields).encode("utf-8")
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+    if idempotency_key:
+        headers["X-Idempotency-Key"] = idempotency_key[:64]
+
+    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+    last_error: Exception | None = None
+    for attempt in range(1, NETWORK_RETRIES + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                body = response.read().decode("utf-8", errors="replace")
+                return response.status, _safe_json(body)
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+            return exc.code, _safe_json(body)
+        except (urllib.error.URLError, socket.timeout, ConnectionError, OSError) as exc:
+            last_error = exc
+            if attempt < NETWORK_RETRIES:
+                time.sleep(2 * attempt)
+                continue
+    raise RuntimeError(f"网络请求失败（已重试 {NETWORK_RETRIES} 次）：{last_error}")
+
+
+def _safe_json(body: str) -> dict:
+    try:
+        payload = json.loads(body) if body else {}
+    except ValueError:
+        return {"status": "error", "code": "INVALID_RESPONSE", "message": (body or "")[:500]}
+    return payload if isinstance(payload, dict) else {"status": "error", "code": "INVALID_RESPONSE", "message": str(payload)[:500]}
+
+
+# ---------------------------------------------------------------------------
+# config resolution
+# ---------------------------------------------------------------------------
+
+def resolve_config(args) -> tuple[str, str, dict]:
+    """Return (token, base_url, record)."""
+    project_dir = Path(args.dir).expanduser().resolve()
+    record = load_record(project_dir)
+    token = (
+        str(getattr(args, "token", "") or "").strip()
+        or os.environ.get("VICROCODE_DEPLOY_TOKEN", "").strip()
+        or str(record.get("token") or "").strip()
+    )
+    site = (
+        str(getattr(args, "site", "") or "").strip().lower()
+        or os.environ.get("VICROCODE_SITE", "").strip().lower()
+        or str(record.get("site") or "").strip().lower()
+        or DEFAULT_SITE
+    )
+    base_url = str(getattr(args, "site_base", "") or "").strip().rstrip("/")
+    if not base_url:
+        base_url = str(record.get("site_base") or "").strip().rstrip("/")
+    if not base_url:
+        base_url = SITE_BASES.get(site, SITE_BASES[DEFAULT_SITE])
+    return token, base_url, record
+
+
+def build_manifest(args, project_dir: Path, record: dict) -> dict:
+    manifest: dict = {}
+    manifest_path = str(getattr(args, "manifest", "") or "").strip()
+    if manifest_path:
+        path = Path(manifest_path)
+        if not path.is_absolute():
+            path = project_dir / path
+        if not path.is_file():
+            raise SystemExit(die(f"manifest 文件不存在：{path}"))
+        loaded = read_json_file(path)
+        if not loaded:
+            raise SystemExit(die(f"manifest 为空或不是合法 JSON 对象：{path}"))
+        manifest.update(loaded)
+
+    for field, attr in (
+        ("title", "title"),
+        ("description", "description"),
+        ("publish_status", "publish_status"),
+        ("directory_name", "directory_name"),
+        ("pageindex", "pageindex"),
+    ):
+        value = str(getattr(args, attr, "") or "").strip()
+        if value:
+            manifest[field] = value
+    tags = str(getattr(args, "tags", "") or "").strip()
+    if tags:
+        manifest["tags"] = [item.strip() for item in re.split(r"[,，]", tags) if item.strip()]
+
+    if record.get("project_id") and not manifest.get("project_id"):
+        manifest["project_id"] = record["project_id"]
+    if record.get("directory_name") and not manifest.get("directory_name"):
+        manifest["directory_name"] = record["directory_name"]
+    if record.get("site") and not manifest.get("site"):
+        manifest["site"] = record["site"]
+
+    project_manifest = read_project_manifest(project_dir)
+    declared = declared_runtime_data(project_manifest)
+    if declared and not manifest.get("dynamic_data_paths"):
+        manifest["dynamic_data_paths"] = declared
+    return manifest
+
+
+def site_base_for_manifest(manifest: dict, fallback: str) -> str:
+    site = str(manifest.get("site") or "").strip().lower()
+    if site in SITE_BASES:
+        return SITE_BASES[site]
+    return fallback
+
+
+# ---------------------------------------------------------------------------
+# commands
+# ---------------------------------------------------------------------------
+
+def command_whoami(args) -> int:
+    token, base_url, _record = resolve_config(args)
+    if not token:
+        return die("缺少智能部署令牌：请用 --token vco-wc-xxx 或设置 VICROCODE_DEPLOY_TOKEN")
+    status, payload = http_call(base_url=base_url, path="/api/agent-deploy/v1/whoami/", token=token, method="GET")
+    if status >= 400 or payload.get("status") != "ok":
+        return die(payload.get("message") or f"令牌校验失败（HTTP {status}）", 1)
+    data = payload.get("data") or {}
+    info(f"令牌可用：{data.get('username')} / {data.get('key_name')} / 剩余额度 "
+         f"{data.get('daily_request_limit')} - {data.get('today_request_count')}")
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+def command_preflight(args) -> int:
+    token, base_url, record = resolve_config(args)
+    project_dir = Path(args.dir).expanduser().resolve()
+    if not project_dir.is_dir():
+        return die(f"目录不存在：{project_dir}")
+
+    manifest = build_manifest(args, project_dir, record)
+    files, skipped = collect_files(project_dir, args.only)
+    problems = check_sizes(files)
+
+    if args.dry_run or not token:
+        payload = {
+            "status": "ok",
+            "data": {
+                "dry_run": True,
+                "file_count": len(files),
+                "files": [relative for relative, _ in files][:200],
+                "skipped": skipped,
+                "problems": problems,
+                "manifest": manifest,
+            },
+        }
+        if not token:
+            info("未检测到令牌，已执行本地预检（配置令牌后可做平台预检）。")
+        return _print_payload(payload, args.json, problems)
+
+    body_files: list[tuple[str, str, bytes]] = []
+    if getattr(args, "with_files", False):
+        for index, (relative, absolute) in enumerate(files):
+            body_files.append((
+                f"online_files[{index}]",
+                ascii_filename(Path(relative).name, index),
+                absolute.read_bytes(),
+            ))
+        fields: list[tuple[str, str]] = [
+            ("manifest", json.dumps(manifest, ensure_ascii=False)),
+            ("online_files_paths", json.dumps(
+                {str(index): relative for index, (relative, _) in enumerate(files)}, ensure_ascii=False)),
+        ]
+    else:
+        # 轻量预检：只把文件清单交给平台，不上传文件本体
+        manifest_with_paths = dict(manifest)
+        manifest_with_paths["file_paths"] = [relative for relative, _ in files]
+        fields = [("manifest", json.dumps(manifest_with_paths, ensure_ascii=False))]
+
+    status, payload = http_call(
+        base_url=base_url,
+        path="/api/agent-deploy/v1/preflight/",
+        token=token,
+        fields=fields,
+        files=body_files or None,
+    )
+    if status >= 400:
+        return die(payload.get("message") or f"预检失败（HTTP {status}）", 1)
+    data = payload.get("data") or {}
+    if skipped:
+        data.setdefault("warnings", []).extend(
+            [f"本地已跳过：{item}" for item in skipped]
+        )
+    if problems:
+        data.setdefault("issues", []).extend(
+            [{"code": "SIZE_LIMIT", "message": item, "fix": "精简文件后重试"} for item in problems]
+        )
+        data["ok"] = False
+    return _print_payload(payload, args.json, problems, exit_on_issues=bool(data.get("issues")))
+
+
+def _print_payload(payload: dict, as_json: bool, problems: list[str] | None = None, *, exit_on_issues: bool = False) -> int:
+    data = payload.get("data") or {}
+    if as_json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    elif data.get("dry_run"):
+        info(f"本地预检：共 {data.get('file_count', 0)} 个文件将上传")
+        for relative in data.get("files") or []:
+            info(f"  {relative}")
+        for item in data.get("skipped") or []:
+            info(f"  [跳过] {item}")
+        for problem in problems or []:
+            info(f"[问题] {problem}")
+    else:
+        info(f"目标动作：{data.get('target_action', '-')}  目录名：{data.get('directory_name', '-')}")
+        if data.get("run_url"):
+            info(f"当前网址：{data['run_url']}")
+        info(f"项目类型：{data.get('project_kind', '-')}  文件数：{(data.get('stats') or {}).get('file_count', '-')}")
+        auto = data.get("auto_fill") or {}
+        if auto:
+            info(f"自动生成标题：{auto.get('title', '')}")
+            info(f"自动生成描述：{auto.get('description', '')}")
+        for issue in data.get("issues") or []:
+            info(f"[问题] {issue.get('code')}: {issue.get('message')} → {issue.get('fix', '')}")
+        for warning in data.get("warnings") or []:
+            info(f"[提示] {warning}")
+        for problem in problems or []:
+            info(f"[问题] {problem}")
+    issues = data.get("issues") or []
+    if exit_on_issues and issues:
+        return 1
+    return 0
+
+
+def command_deploy(args) -> int:
+    token, base_url, record = resolve_config(args)
+    project_dir = Path(args.dir).expanduser().resolve()
+    if not project_dir.is_dir():
+        return die(f"目录不存在：{project_dir}")
+    if not token:
+        return die(
+            "缺少智能部署令牌。请先在 VicroCode「我的令牌 - 智能部署」创建令牌，"
+            "然后用 --token vco-wc-xxx 传一次（之后会记录在 .vicrocode/deploy.json）。"
+        )
+
+    manifest = build_manifest(args, project_dir, record)
+    files, skipped = collect_files(project_dir, args.only)
+    if not files:
+        return die("没有可上传的文件（检查 --only 或目录是否为空）")
+    problems = check_sizes(files)
+    if problems and not args.force:
+        for problem in problems:
+            info(f"[问题] {problem}")
+        return die("存在体积超限的文件，请精简后重试（或用 --force 跳过本地检查）", 1)
+
+    digest = package_hash(files)
+    if (
+        not args.force
+        and record.get("project_id")
+        and record.get("last_package_hash") == digest
+    ):
+        info("内容与上次上传完全一致，已跳过上传（如需强制重传请加 --force）。")
+        if record.get("run_url"):
+            info(f"网址：{record['run_url']}")
+        return 0
+
+    directory_name = str(manifest.get("directory_name") or record.get("directory_name") or project_dir.name)
+    idempotency_key = hashlib.sha256(
+        f"{directory_name}|{manifest.get('project_id') or ''}|{digest}".encode("utf-8")
+    ).hexdigest()[:48]
+
+    body_files: list[tuple[str, str, bytes]] = []
+    paths: dict[str, str] = {}
+    for index, (relative, absolute) in enumerate(files):
+        try:
+            content = absolute.read_bytes()
+        except OSError as exc:
+            return die(f"读取文件失败：{relative} ({exc})")
+        body_files.append((f"online_files[{index}]", ascii_filename(Path(relative).name, index), content))
+        paths[str(index)] = relative
+
+    fields = [
+        ("manifest", json.dumps(manifest, ensure_ascii=False)),
+        ("online_files_paths", json.dumps(paths, ensure_ascii=False)),
+    ]
+    info(f"正在上传 {len(files)} 个文件到 {base_url} …")
+    status, payload = http_call(
+        base_url=base_url,
+        path="/api/agent-deploy/v1/deploy/",
+        token=token,
+        fields=fields,
+        files=body_files,
+        idempotency_key=idempotency_key,
+    )
+    if status >= 400 or payload.get("status") != "ok":
+        code = payload.get("code") or f"HTTP_{status}"
+        info(f"[失败] {code}: {payload.get('message')}")
+        if code == "DIRECTORY_NAME_TAKEN":
+            info("建议：换一个 directory_name，或先用 --directory-name 指定唯一名称。")
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 1
+
+    data = payload.get("data") or {}
+    run_url = str(data.get("run_url") or "")
+    record.update({
+        "schema": RECORD_SCHEMA,
+        "token": token,
+        "site": str(manifest.get("site") or record.get("site") or DEFAULT_SITE),
+        "site_base": site_base_for_manifest(manifest, base_url),
+        "project_id": data.get("project_id"),
+        "directory_name": data.get("directory_name"),
+        "run_url": run_url,
+        "project_kind": "python" if data.get("is_python") else "static",
+        "last_upload_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "last_package_hash": digest,
+        "file_count": len(files),
+    })
+    if manifest.get("python", {}).get("auto_deploy") if isinstance(manifest.get("python"), dict) else False:
+        record["auto_deploy"] = True
+    history = record.get("history")
+    if not isinstance(history, list):
+        history = []
+    history = history[-19:] + [{
+        "at": record["last_upload_at"],
+        "action": data.get("action") or "deploy",
+        "project_id": data.get("project_id"),
+        "file_count": len(files),
+    }]
+    record["history"] = history
+    if not args.no_save:
+        save_record(project_dir, record)
+        warn_if_not_gitignored(project_dir)
+
+    info(f"上传成功（{data.get('action')}）：项目 #{data.get('project_id')}")
+    info(f"网址：{run_url}")
+    for warning in data.get("warnings") or []:
+        info(f"[提示] {warning}")
+    if data.get("is_python"):
+        info(f"Python 项目：入口 {data.get('entry_file') or '-'}，框架 {data.get('framework') or '-'}")
+        info("如需部署上线，请运行：python scripts/vicrocode_deploy.py run --dir .")
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _project_id(args) -> tuple[str, str, dict, int]:
+    token, base_url, record = resolve_config(args)
+    project_id = record.get("project_id")
+    manifest = build_manifest(args, Path(args.dir).expanduser().resolve(), record)
+    if not project_id:
+        project_id = manifest.get("project_id")
+    return token, base_url, record, int(project_id or 0)
+
+
+def command_run(args) -> int:
+    token, base_url, _record, project_id = _project_id(args)
+    if not token:
+        return die("缺少令牌：请先执行一次 deploy，或传入 --token vco-wc-xxx")
+    if not project_id:
+        return die("未找到 project_id：请先执行一次 deploy")
+
+    status, payload = http_call(
+        base_url=base_url,
+        path=f"/api/agent-deploy/v1/projects/{project_id}/deploy/",
+        token=token,
+        json_body={"action": "run", "max_attempts": args.max_attempts},
+    )
+    if status >= 400 or payload.get("status") != "ok":
+        info(f"[失败] {payload.get('code') or status}: {payload.get('message')}")
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 1
+    data = payload.get("data") or {}
+    info(f"部署任务已提交：状态 {data.get('deploy_status', '-')}")
+    if not args.no_wait:
+        return _poll_deploy(args, token, base_url, project_id)
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _poll_deploy(args, token: str, base_url: str, project_id: int) -> int:
+    deadline = time.time() + args.wait_seconds
+    last_status = ""
+    while time.time() < deadline:
+        status, payload = http_call(
+            base_url=base_url,
+            path=f"/api/agent-deploy/v1/projects/{project_id}/deploy/status/",
+            token=token,
+            method="GET",
+        )
+        if status >= 400:
+            info(f"[失败] {payload.get('message') or status}")
+            return 1
+        data = payload.get("data") or {}
+        current = str(data.get("deploy_status") or "")
+        if current != last_status:
+            info(f"部署状态：{current}")
+            last_status = current
+        if current in {"success", "running"} and data.get("healthy"):
+            info(f"部署成功：{data.get('run_url') or ''}")
+            if data.get("log_tail"):
+                info("最近日志：")
+                info("\n".join(str(data["log_tail"]).splitlines()[-20:]))
+            if args.json:
+                print(json.dumps(payload, ensure_ascii=False, indent=2))
+            return 0
+        if current in {"failed", "error", "timeout"}:
+            info(f"[失败] {data.get('error_code') or 'DEPLOY_FAILED'}: {data.get('error_message') or ''}")
+            if data.get("suggestion"):
+                info(f"建议：{data['suggestion']}")
+            if data.get("log_tail"):
+                info("日志尾部：")
+                info("\n".join(str(data["log_tail"]).splitlines()[-LOG_TAIL_LINES:]))
+            if args.json:
+                print(json.dumps(payload, ensure_ascii=False, indent=2))
+            return 1
+        time.sleep(args.interval)
+    return die(f"等待部署结果超时（{args.wait_seconds}s），可用 status 命令继续查询", 1)
+
+
+def command_status(args) -> int:
+    token, base_url, _record, project_id = _project_id(args)
+    if not token or not project_id:
+        return die("缺少令牌或 project_id：请先执行一次 deploy")
+    status, payload = http_call(
+        base_url=base_url,
+        path=f"/api/agent-deploy/v1/projects/{project_id}/deploy/status/",
+        token=token,
+        method="GET",
+    )
+    if status >= 400:
+        return die(payload.get("message") or f"查询失败（HTTP {status}）", 1)
+    data = payload.get("data") or {}
+    info(f"部署状态：{data.get('deploy_status', '-')}  健康：{data.get('healthy')}")
+    if data.get("run_url"):
+        info(f"网址：{data['run_url']}")
+    for key in ("error_code", "error_message", "suggestion"):
+        if data.get(key):
+            info(f"{key}: {data[key]}")
+    if data.get("log_tail"):
+        info("日志尾部：")
+        info("\n".join(str(data["log_tail"]).splitlines()[-LOG_TAIL_LINES:]))
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+def command_stop(args) -> int:
+    token, base_url, _record, project_id = _project_id(args)
+    if not token or not project_id:
+        return die("缺少令牌或 project_id：请先执行一次 deploy")
+    status, payload = http_call(
+        base_url=base_url,
+        path=f"/api/agent-deploy/v1/projects/{project_id}/deploy/",
+        token=token,
+        json_body={"action": "stop"},
+    )
+    if status >= 400 or payload.get("status") != "ok":
+        return die(payload.get("message") or f"停止失败（HTTP {status}）", 1)
+    info("已提交停止请求。")
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+def command_metadata(args) -> int:
+    token, base_url, _record, project_id = _project_id(args)
+    if not token or not project_id:
+        return die("缺少令牌或 project_id：请先执行一次 deploy")
+    body: dict = {}
+    for field in ("title", "description", "publish_status", "seo_title", "seo_description", "seo_keywords"):
+        value = str(getattr(args, field, "") or "").strip()
+        if value:
+            body[field] = value
+    tags = str(getattr(args, "tags", "") or "").strip()
+    if tags:
+        body["tags"] = [item.strip() for item in re.split(r"[,，]", tags) if item.strip()]
+    if not body:
+        return die("没有要更新的字段（可用 --title / --description / --tags / --seo-title 等）")
+    status, payload = http_call(
+        base_url=base_url,
+        path=f"/api/agent-deploy/v1/projects/{project_id}/metadata/",
+        token=token,
+        method="PATCH",
+        json_body=body,
+    )
+    if status >= 400 or payload.get("status") != "ok":
+        return die(payload.get("message") or f"更新失败（HTTP {status}）", 1)
+    info("项目信息已更新。")
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    def add_common(target, *, with_token: bool = True, with_manifest: bool = False):
+        target.add_argument("--dir", default=".", help="项目根目录（默认当前目录）")
+        target.add_argument("--json", action="store_true", help="输出原始 JSON")
+        if with_token:
+            target.add_argument("--token", default="", help="智能部署令牌 vco-wc-...（只首次需要）")
+            target.add_argument("--site", default="", help="站点：cn / global")
+            target.add_argument("--site-base", default="", help="自定义站点基址")
+        if with_manifest:
+            target.add_argument("--manifest", default="", help="额外 manifest JSON 文件")
+            target.add_argument("--title", default="", help="项目标题")
+            target.add_argument("--description", default="", help="项目描述")
+            target.add_argument("--tags", default="", help="标签，逗号分隔")
+            target.add_argument("--directory-name", default="", help="项目目录名")
+            target.add_argument("--pageindex", default="", help="首页文件名")
+            target.add_argument("--publish-status", default="", help="draft / private / approved")
+            target.add_argument("--only", nargs="*", default=None, help="只上传指定相对路径")
+
+    p = sub.add_parser("whoami", help="校验令牌")
+    add_common(p)
+    p.set_defaults(func=command_whoami)
+
+    p = sub.add_parser("preflight", help="上传前预检")
+    add_common(p, with_manifest=True)
+    p.add_argument("--dry-run", action="store_true", help="只做本地检查，不请求平台")
+    p.add_argument("--with-files", action="store_true", help="连文件一起预检（能读到页面标题）")
+    p.set_defaults(func=command_preflight)
+
+    p = sub.add_parser("deploy", help="上传或更新项目")
+    add_common(p, with_manifest=True)
+    p.add_argument("--force", action="store_true", help="忽略本地体积检查与内容未变化跳过")
+    p.add_argument("--no-save", action="store_true", help="不写入 .vicrocode/deploy.json")
+    p.set_defaults(func=command_deploy)
+
+    p = sub.add_parser("run", help="部署/重启 Python 项目并等待结果")
+    add_common(p)
+    p.add_argument("--max-attempts", type=int, default=3, help="平台自动重试次数上限")
+    p.add_argument("--interval", type=float, default=5.0, help="轮询间隔秒")
+    p.add_argument("--wait-seconds", type=float, default=300.0, help="最长等待秒")
+    p.add_argument("--no-wait", action="store_true", help="提交后立即返回")
+    p.set_defaults(func=command_run)
+
+    p = sub.add_parser("status", help="查询部署状态与日志")
+    add_common(p)
+    p.set_defaults(func=command_status)
+
+    p = sub.add_parser("stop", help="停止运行中的项目")
+    add_common(p)
+    p.set_defaults(func=command_stop)
+
+    p = sub.add_parser("metadata", help="单独更新项目标题/描述/TDK/标签")
+    add_common(p)
+    p.add_argument("--seo-title", default="", dest="seo_title")
+    p.add_argument("--seo-description", default="", dest="seo_description")
+    p.add_argument("--seo-keywords", default="", dest="seo_keywords")
+    p.set_defaults(func=command_metadata)
+
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
+    args = parser.parse_args()
+    try:
+        return int(args.func(args) or 0)
+    except KeyboardInterrupt:
+        return die("已取消", 2)
+    except RuntimeError as exc:
+        return die(str(exc), 1)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

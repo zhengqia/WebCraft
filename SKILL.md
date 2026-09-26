@@ -21,6 +21,7 @@ Before doing any implementation work:
 8. Use [references/dialogue-template.md](references/dialogue-template.md) as the default conversation pattern when required information is still missing.
 9. Load [references/vicrocode-platform-playbook.md](references/vicrocode-platform-playbook.md) when the user needs a platform resource, beginner setup guidance, model-center integration, upload/publish help, SEO, or multilingual routing.
 10. Read [references/runtime-data-and-cloning-isolation.md](references/runtime-data-and-cloning-isolation.md) whenever the project stores state in files (JSON / JS / CSV) instead of SQLite, or whenever the project may be cloned, delivered, or sold as source. This is mandatory before finishing such a project.
+11. When the user asks to upload, update, or deploy the finished project to VicroCode (e.g. "上传到 VicroCode", "更新到 VicroCode", "部署"), read [references/agent-deploy.md](references/agent-deploy.md) and use `scripts/vicrocode_deploy.py` instead of sending the user to the browser upload page.
 
 ## Idea Discovery
 
@@ -168,6 +169,7 @@ When building or repairing a public tool:
 - Never send a provider `Authorization`, API-key header, API-key query parameter, Basic password, OAuth client secret, or HMAC secret from project code when the API is managed by Credential Vault. The platform injects authentication after receiving the project request.
 - Treat the hosted API identifier as a stable code contract. Preserve it across source updates so clones can bind their own credentials without code changes.
 - A project prepared for cloning must not ship `.env`, `.env.*`, private-key files, service-account files, or hard-coded credentials. Run `scripts/check_clone_secrets.py <project-dir>` before upload when the WebCraft package is available.
+- The agent-deploy record file (`.vicrocode/deploy.json`) holds the user's `vco-wc-` token and must never be uploaded, committed, or delivered. Keep it local only, add `.vicrocode/` to `.gitignore`, and never copy its contents into project source, logs, or any file that ships.
 - All user-facing prompts, confirmations, warnings, loading states, and errors must be presented through webpage overlay UI instead of native browser dialogs.
 - Destructive or sensitive operations must not execute until the user confirms through a webpage overlay.
 - Treat `/api/python-proxy/{projectId}/` as the real runtime entry for Python-backed projects.
@@ -237,6 +239,28 @@ When the project will be uploaded to VicroCode:
 5. For local development, prefer a compatibility path that keeps template/state files inside the project directory when platform runtime is absent, so the uploaded directory still contains the needed initial data.
 6. Make sure the uploaded copy of every data file is an empty template. The platform delivers `pro/` to buyers, so anything the author wrote there is delivered too.
 7. Include `vicrocode.project.json` even when the app has no file storage (`"runtime_data": []`). It documents the storage decision and keeps the upload page from guessing.
+
+## Agent Deploy (One-Click Upload & Deploy)
+
+When the user finishes a website or Python project and wants it on VicroCode, use the
+agent-deploy path instead of sending them to the browser upload page. Read
+[references/agent-deploy.md](references/agent-deploy.md) for the full protocol; the short flow is:
+
+1. Run `python scripts/vicrocode_deploy.py preflight --dir <project>` to detect project type, entry files, dynamic data declarations, sensitive files, and size problems. Fix every issue it reports.
+2. If no token is configured yet, the script tells the user exactly where to create one (a "智能部署" token, prefix `vco-wc-`). Ask for it once, then run `deploy --token vco-wc-...`; the script stores it in `.vicrocode/deploy.json`.
+3. Run `python scripts/vicrocode_deploy.py deploy --dir <project>`. The script auto-generates title / description / tags / TDK from `manifest` and the page `<title>`/`<meta>`, uploads files, and prints the run URL. Later runs are fully automatic (the token, project id and directory name are read from the record file).
+4. For Python projects, the deploy result reports `is_python` and the entry file. Ask the user whether to deploy it online, then run `python scripts/vicrocode_deploy.py run --dir <project>`; the platform starts the app, auto-retries transient failures, and returns structured diagnosis plus log tails on real failures so you can fix the code and re-run.
+5. Tell the user the final URL (`https://www.vicoco.cn/p/{id}/` on the CN site, `https://www.vicrocode.com/p/{id}/` on the global site).
+
+Upload must satisfy the platform rules exactly as the browser upload page does — the same
+validation runs on the server. The agent-side script additionally:
+- never uploads `.vicrocode/`, `.env*`, `.git/`, `node_modules/`, private keys, or cache/log files;
+- refuses single files over 20 MB and total payloads over 90 MB unless forced;
+- keeps the record file local and reminds the user to add `.vicrocode/` to `.gitignore`.
+
+The `vco-wc-` token only works against `/api/agent-deploy/v1/*` and only for the token
+owner's own projects. Never paste the token into the project source, logs, or any file that
+will be uploaded.
 
 ## File-Storage Data Safety
 
