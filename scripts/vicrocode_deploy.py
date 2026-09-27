@@ -19,9 +19,16 @@ Usage::
     python scripts/vicrocode_deploy.py preflight --dir .
     python scripts/vicrocode_deploy.py deploy   --dir . --manifest manifest.json
     python scripts/vicrocode_deploy.py deploy   --dir . --title "AI 去水印工具"
+    python scripts/vicrocode_deploy.py deploy   --dir . --id 1234   # 只升级 #1234
+    python scripts/vicrocode_deploy.py sync     --dir . --summary "改了什么" --files a.html,b.js
+    python scripts/vicrocode_deploy.py log      --dir . --summary "只记一笔开发记录"
     python scripts/vicrocode_deploy.py run      --dir .      # start Python deploy
     python scripts/vicrocode_deploy.py status   --dir .      # deploy status
     python scripts/vicrocode_deploy.py stop     --dir .      # stop the app
+
+Every develop/upload action is also appended to the project-local dev log
+(``<project>/.vicrocode/dev-log.md`` and ``.vicrocode/dev-log.jsonl``), which is
+never uploaded.
 
 Exit codes::
 
@@ -51,6 +58,9 @@ RECORD_DIR = ".vicrocode"
 RECORD_FILE = "deploy.json"
 RECORD_SCHEMA = "vicrocode.agent-deploy.v1"
 MANIFEST_FILENAME = "vicrocode.project.json"
+DEVLOG_FILE = "dev-log.md"
+DEVLOG_JSONL = "dev-log.jsonl"
+DEVLOG_MAX_FILES = 40
 
 SITE_BASES = {
     "cn": "https://www.vicoco.cn",
@@ -172,6 +182,104 @@ def warn_if_not_gitignored(project_dir: Path) -> None:
         text = ""
     if RECORD_DIR not in text:
         info(f"提示：建议把 {RECORD_DIR}/ 加入 .gitignore，避免令牌被提交到代码仓库。")
+
+
+# ---------------------------------------------------------------------------
+# project-local development log
+# ---------------------------------------------------------------------------
+
+def devlog_paths(project_dir: Path) -> tuple[Path, Path]:
+    directory = project_dir / RECORD_DIR
+    return directory / DEVLOG_FILE, directory / DEVLOG_JSONL
+
+
+def split_list(raw: object) -> list[str]:
+    """逗号 / 中文逗号 / 空白分隔的字符串转成去重后的列表。"""
+    if raw in (None, ""):
+        return []
+    if isinstance(raw, (list, tuple)):
+        items = [str(item) for item in raw]
+    else:
+        items = re.split(r"[,，\s]+", str(raw))
+    result: list[str] = []
+    for item in items:
+        value = normalize_rel_path(item) or str(item).strip()
+        if value and value not in result:
+            result.append(value)
+    return result
+
+
+def append_dev_log(
+    project_dir: Path,
+    *,
+    action: str,
+    summary: str = "",
+    files: list[str] | None = None,
+    project_id: int = 0,
+    run_url: str = "",
+    result: str = "ok",
+    detail: str = "",
+) -> None:
+    """把一次开发 / 修改 / 上传动作追加到项目目录内的开发记录。
+
+    记录只写在 ``.vicrocode/`` 里（不会上传、不会随项目交付），用来回答
+    「这个项目什么时候改过、改了什么、有没有传上去」。
+    """
+    markdown_path, jsonl_path = devlog_paths(project_dir)
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S%z")
+    file_list = [str(item) for item in (files or []) if str(item).strip()][:DEVLOG_MAX_FILES]
+    entry = {
+        "at": stamp,
+        "action": action,
+        "summary": summary,
+        "project_id": int(project_id or 0),
+        "run_url": run_url,
+        "result": result,
+        "files": file_list,
+    }
+    if detail:
+        entry["detail"] = detail
+    lines = [f"## {stamp} — {action} [{result}]"]
+    if summary:
+        lines.append(f"- 说明：{summary}")
+    if entry["project_id"]:
+        target = f"- 项目：#{entry['project_id']}"
+        if run_url:
+            target += f"  {run_url}"
+        lines.append(target)
+    elif run_url:
+        lines.append(f"- 网址：{run_url}")
+    if file_list:
+        lines.append(f"- 涉及文件（{len(file_list)}）：" + "、".join(file_list))
+    if detail:
+        lines.append(f"- 备注：{detail}")
+    lines.append("")
+    try:
+        markdown_path.parent.mkdir(parents=True, exist_ok=True)
+        is_new = (not markdown_path.exists()) or markdown_path.stat().st_size == 0
+        with markdown_path.open("a", encoding="utf-8") as handle:
+            if is_new:
+                handle.write("# WebCraft 开发与修改记录\n\n")
+                handle.write(
+                    "本文件由 scripts/vicrocode_deploy.py 自动追加，只保存在本地"
+                    "（.vicrocode/ 不会上传、不会随项目交付）。\n\n"
+                )
+            handle.write("\n".join(lines) + "\n")
+        with jsonl_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        info(f"[提示] 开发记录写入失败（不影响本次结果）：{exc}")
+
+
+def parse_project_id(raw: object) -> int:
+    """把 --id / manifest.project_id 之类的输入转成正整数，非法时直接报错退出。"""
+    text = str(raw or "").strip().lstrip("#").strip()
+    if not text:
+        return 0
+    if not text.isdigit():
+        raise SystemExit(die(f"--id 必须是数字项目 ID，收到的是：{raw}"))
+    value = int(text)
+    return value if value > 0 else 0
 
 
 # ---------------------------------------------------------------------------
@@ -426,6 +534,14 @@ def build_manifest(args, project_dir: Path, record: dict) -> dict:
     if record.get("site") and not manifest.get("site"):
         manifest["site"] = record["site"]
 
+    # --id 优先级最高：明确指定「升级哪个应用」时，只更新该项目，绝不新建。
+    explicit_id = parse_project_id(getattr(args, "project_id", ""))
+    if explicit_id:
+        previous = manifest.get("project_id")
+        if previous not in (None, "", explicit_id, str(explicit_id)):
+            info(f"[提示] --id {explicit_id} 覆盖了记录里的项目 #{previous}，本次只升级 #{explicit_id}。")
+        manifest["project_id"] = explicit_id
+
     project_manifest = read_project_manifest(project_dir)
     declared = declared_runtime_data(project_manifest)
     if declared and not manifest.get("dynamic_data_paths"):
@@ -611,6 +727,9 @@ def command_deploy(args) -> int:
         )
 
     manifest = build_manifest(args, project_dir, record)
+    explicit_id = parse_project_id(getattr(args, "project_id", ""))
+    if explicit_id:
+        info(f"[升级模式] 目标项目 #{explicit_id}：只更新文件，不会新建项目。")
     files, skipped = collect_files(project_dir, args.only)
     if not files:
         return die("没有可上传的文件（检查 --only 或目录是否为空）")
@@ -618,6 +737,14 @@ def command_deploy(args) -> int:
     if problems and not args.force:
         for problem in problems:
             info(f"[问题] {problem}")
+        append_dev_log(
+            project_dir,
+            action="upload",
+            summary="上传前本地检查未通过",
+            files=[relative for relative, _ in files],
+            result="failed",
+            detail="；".join(problems),
+        )
         return die("存在体积超限的文件，请精简后重试（或用 --force 跳过本地检查）", 1)
 
     digest = package_hash(files)
@@ -629,6 +756,15 @@ def command_deploy(args) -> int:
         info("内容与上次上传完全一致，已跳过上传（如需强制重传请加 --force）。")
         if record.get("run_url"):
             info(f"网址：{record['run_url']}")
+        append_dev_log(
+            project_dir,
+            action="upload",
+            summary="内容与上次完全一致，未重复上传",
+            files=[relative for relative, _ in files],
+            project_id=int(record.get("project_id") or 0),
+            run_url=str(record.get("run_url") or ""),
+            result="skipped",
+        )
         return 0
 
     body_files: list[tuple[str, str, bytes]] = []
@@ -686,10 +822,21 @@ def command_deploy(args) -> int:
         info(f"[失败] {code}: {payload.get('message')}")
         if code == "DIRECTORY_NAME_TAKEN":
             info("建议：换一个 directory_name，或先用 --directory-name 指定唯一名称。")
+        if code == "PROJECT_NOT_FOUND":
+            info("建议：确认 --id 对应的项目属于当前令牌账号；如果要新建项目，请去掉 --id。")
         if stopped_for_upload:
             # 为了上传把线上停掉了，上传又失败：赶紧恢复运行，避免留下一个挂掉的站点
             info("[提示] 上传失败，正在把项目恢复到运行状态…")
             _start_project(token, base_url, target_id)
+        append_dev_log(
+            project_dir,
+            action="upload",
+            summary=f"上传失败：{code}",
+            files=[relative for relative, _ in files],
+            project_id=target_id,
+            result="failed",
+            detail=str(payload.get("message") or ""),
+        )
         if args.json:
             print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 1
@@ -729,20 +876,60 @@ def command_deploy(args) -> int:
     info(f"网址：{run_url}")
     for warning in data.get("warnings") or []:
         info(f"[提示] {warning}")
+    uploaded_files = [relative for relative, _ in files]
+    append_dev_log(
+        project_dir,
+        action="upload",
+        summary=(
+            f"已{'更新' if data.get('action') == 'update' else '新建'}项目并上传 {len(uploaded_files)} 个文件"
+        ),
+        files=uploaded_files,
+        project_id=int(data.get("project_id") or 0),
+        run_url=run_url,
+        result="ok",
+        detail=f"平台动作：{data.get('action') or 'deploy'}",
+    )
     if data.get("is_python"):
         info(f"Python 项目：入口 {data.get('entry_file') or '-'}，框架 {data.get('framework') or '-'}")
+        deployed_id = int(data.get("project_id") or 0)
         if restart_after:
             info("正在自动重新部署，保持/恢复网址可访问…")
-            run_status, run_payload = _start_project(token, base_url, int(data.get("project_id") or 0))
+            run_status, run_payload = _start_project(token, base_url, deployed_id)
             if run_status >= 400 or run_payload.get("status") != "ok":
                 info(
                     f"[提示] 自动重新部署未提交成功：{run_payload.get('message') or run_status}"
                     "，请手动执行 run"
                 )
+                append_dev_log(
+                    project_dir,
+                    action="run",
+                    summary="自动重新部署提交失败",
+                    project_id=deployed_id,
+                    run_url=run_url,
+                    result="failed",
+                    detail=str(run_payload.get("message") or run_status),
+                )
             elif getattr(args, "no_wait", False):
                 info("已提交重新部署，可用 status 查看进度。")
+                append_dev_log(
+                    project_dir,
+                    action="run",
+                    summary="已提交重新部署（未等待结果）",
+                    project_id=deployed_id,
+                    run_url=run_url,
+                    result="pending",
+                )
             else:
-                return _poll_deploy(args, token, base_url, int(data.get("project_id") or 0))
+                exit_code = _poll_deploy(args, token, base_url, deployed_id)
+                append_dev_log(
+                    project_dir,
+                    action="run",
+                    summary="自动重新部署完成" if exit_code == 0 else "自动重新部署失败",
+                    project_id=deployed_id,
+                    run_url=run_url,
+                    result="ok" if exit_code == 0 else "failed",
+                )
+                return exit_code
         else:
             info("如需部署上线，请运行：python scripts/vicrocode_deploy.py run --dir .")
     if args.json:
@@ -752,10 +939,8 @@ def command_deploy(args) -> int:
 
 def _project_id(args) -> tuple[str, str, dict, int]:
     token, base_url, record = resolve_config(args)
-    project_id = record.get("project_id")
     manifest = build_manifest(args, Path(args.dir).expanduser().resolve(), record)
-    if not project_id:
-        project_id = manifest.get("project_id")
+    project_id = manifest.get("project_id") or record.get("project_id")
     return token, base_url, record, int(project_id or 0)
 
 
@@ -798,8 +983,24 @@ def command_run(args) -> int:
         return 1
     data = payload.get("data") or {}
     info(f"部署任务已提交：状态 {data.get('deploy_status', '-')}")
+    project_dir = Path(args.dir).expanduser().resolve()
     if not args.no_wait:
-        return _poll_deploy(args, token, base_url, project_id)
+        exit_code = _poll_deploy(args, token, base_url, project_id)
+        append_dev_log(
+            project_dir,
+            action="run",
+            summary=f"部署{'成功' if exit_code == 0 else '失败'}",
+            project_id=project_id,
+            result="ok" if exit_code == 0 else "failed",
+        )
+        return exit_code
+    append_dev_log(
+        project_dir,
+        action="run",
+        summary=f"已提交部署（{action}），未等待结果",
+        project_id=project_id,
+        result="pending",
+    )
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
@@ -885,6 +1086,13 @@ def command_stop(args) -> int:
     if status >= 400 or payload.get("status") != "ok":
         return die(payload.get("message") or f"停止失败（HTTP {status}）", 1)
     info("已提交停止请求。")
+    append_dev_log(
+        Path(args.dir).expanduser().resolve(),
+        action="stop",
+        summary="已停止运行中的项目",
+        project_id=project_id,
+        result="ok",
+    )
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
@@ -914,9 +1122,64 @@ def command_metadata(args) -> int:
     if status >= 400 or payload.get("status") != "ok":
         return die(payload.get("message") or f"更新失败（HTTP {status}）", 1)
     info("项目信息已更新。")
+    append_dev_log(
+        Path(args.dir).expanduser().resolve(),
+        action="metadata",
+        summary="已更新项目信息：" + "、".join(sorted(body.keys())),
+        project_id=project_id,
+        result="ok",
+    )
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
+
+
+def command_log(args) -> int:
+    """只往项目目录写一条开发记录（不联网、不上传）。"""
+    project_dir = Path(args.dir).expanduser().resolve()
+    if not project_dir.is_dir():
+        return die(f"目录不存在：{project_dir}")
+    summary = str(getattr(args, "summary", "") or "").strip()
+    if not summary:
+        return die('请用 --summary 说明这次开发/修改做了什么，例如 --summary "完成登录页改版"')
+    record = load_record(project_dir)
+    project_id = parse_project_id(getattr(args, "project_id", "")) or int(record.get("project_id") or 0)
+    append_dev_log(
+        project_dir,
+        action=str(getattr(args, "action", "") or "modify").strip() or "modify",
+        summary=summary,
+        files=split_list(getattr(args, "files", "")),
+        project_id=project_id,
+        run_url=str(record.get("run_url") or ""),
+        result=str(getattr(args, "result", "") or "ok").strip() or "ok",
+    )
+    info(f"已记录到 {RECORD_DIR}/{DEVLOG_FILE}（同时写入 {DEVLOG_JSONL}）")
+    return 0
+
+
+def command_sync(args) -> int:
+    """改完即上传：先记录这次修改，再执行 deploy。
+
+    有本地记录或显式 ``--id`` 时只会更新原项目，不会新建。
+    """
+    project_dir = Path(args.dir).expanduser().resolve()
+    if not project_dir.is_dir():
+        return die(f"目录不存在：{project_dir}")
+    summary = str(getattr(args, "summary", "") or "").strip()
+    record = load_record(project_dir)
+    if summary:
+        append_dev_log(
+            project_dir,
+            action="modify",
+            summary=summary,
+            files=split_list(getattr(args, "files", "")),
+            project_id=parse_project_id(getattr(args, "project_id", "")) or int(record.get("project_id") or 0),
+            run_url=str(record.get("run_url") or ""),
+            result="ok",
+        )
+    else:
+        info("[提示] 未提供 --summary：本次只上传，不会记录「改了什么」，建议下次补上。")
+    return command_deploy(args)
 
 
 # ---------------------------------------------------------------------------
@@ -930,6 +1193,12 @@ def build_parser() -> argparse.ArgumentParser:
     def add_common(target, *, with_token: bool = True, with_manifest: bool = False):
         target.add_argument("--dir", default=".", help="项目根目录（默认当前目录）")
         target.add_argument("--json", action="store_true", help="输出原始 JSON")
+        target.add_argument(
+            "--id",
+            dest="project_id",
+            default="",
+            help="要升级的项目 ID：只更新这个应用，不会新建（例如 --id 1234）",
+        )
         if with_token:
             target.add_argument("--token", default="", help="智能部署令牌 vco-wc-...（只首次需要）")
             target.add_argument("--site", default="", help="站点：cn / global")
@@ -954,14 +1223,32 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--with-files", action="store_true", help="连文件一起预检（能读到页面标题）")
     p.set_defaults(func=command_preflight)
 
-    p = sub.add_parser("deploy", help="上传或更新项目")
+    def add_deploy_flags(target):
+        target.add_argument("--force", action="store_true", help="忽略本地体积检查与内容未变化跳过")
+        target.add_argument("--no-save", action="store_true", help="不写入 .vicrocode/deploy.json")
+        target.add_argument("--no-wait", action="store_true", help="自动重新部署后不等待结果")
+        target.add_argument("--interval", type=float, default=5.0, help="轮询间隔秒")
+        target.add_argument("--wait-seconds", type=float, default=180.0, help="自动重新部署最长等待秒")
+
+    p = sub.add_parser("deploy", help="上传或更新项目（有记录或 --id 时只更新，不新建）")
     add_common(p, with_manifest=True)
-    p.add_argument("--force", action="store_true", help="忽略本地体积检查与内容未变化跳过")
-    p.add_argument("--no-save", action="store_true", help="不写入 .vicrocode/deploy.json")
-    p.add_argument("--no-wait", action="store_true", help="自动重新部署后不等待结果")
-    p.add_argument("--interval", type=float, default=5.0, help="轮询间隔秒")
-    p.add_argument("--wait-seconds", type=float, default=180.0, help="自动重新部署最长等待秒")
+    add_deploy_flags(p)
     p.set_defaults(func=command_deploy)
+
+    p = sub.add_parser("sync", help="改完即上传：记录这次修改并更新项目（不会新建）")
+    add_common(p, with_manifest=True)
+    add_deploy_flags(p)
+    p.add_argument("--summary", default="", help="这次改了什么（写入项目目录的开发记录）")
+    p.add_argument("--files", default="", help="本次涉及的文件，逗号分隔（写入记录）")
+    p.set_defaults(func=command_sync)
+
+    p = sub.add_parser("log", help="只往项目目录写一条开发记录（不联网）")
+    add_common(p, with_token=False)
+    p.add_argument("--summary", default="", help="这次开发/修改做了什么")
+    p.add_argument("--files", default="", help="涉及的文件，逗号分隔")
+    p.add_argument("--action", default="modify", help="记录类型：modify / develop / fix …")
+    p.add_argument("--result", default="ok", help="结果标记：ok / failed / pending")
+    p.set_defaults(func=command_log)
 
     p = sub.add_parser("run", help="部署/重启 Python 项目并等待结果")
     add_common(p)

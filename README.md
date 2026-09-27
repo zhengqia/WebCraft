@@ -25,6 +25,10 @@ WebCraft v106 统一令牌前缀：智能部署令牌由 `sk-wc-` 调整为 `vco
 
 WebCraft v107 修正智能体部署流程，解决三个会导致「改了代码但网址没变」的隐蔽问题：平台在项目运行中不允许写入文件，`deploy` 现在会先停止项目、上传后自动重新上线；上传幂等键改为每次请求唯一（此前按内容推导，重复上传会被平台当成重复请求，返回成功却不写文件）；Python 启动失败时改为从进程日志诊断真实原因，缺依赖、语法错误等确定性故障不再盲目重试，并返回修复建议与日志尾部。
 
+WebCraft v108 新增「改完自动上传、按 ID 升级与开发记录」：每次用技能开发或修改项目后，智能体会自动执行 `sync` 把新版本上传，不再等用户说「上传」；上传时可传 `--id 项目编号` 只更新指定应用、绝不新建项目（也可沿用 `.vicrocode/deploy.json` 里记住的项目 ID）；每次改动与上传都会追加写入项目目录的 `.vicrocode/dev-log.md`（另附 `dev-log.jsonl`），方便回顾「什么时候改了什么、有没有传上去」。该记录只存本地，不会上传、也不会随源码交付。详见 `references/agent-deploy.md`。
+
+WebCraft v109 把技能扩展成「平台能力总入口」：新增 `references/platform-capability-map.md`（平台能力对照表——密钥托管、知识库、数据库、模型中心、API 端点、文件管理、技能发布分别对应哪个创建入口、需要向用户索要什么、代码怎么接、用哪一类令牌，并给出引导用户的标准话术），以及 `references/skill-development-and-publishing.md`（按平台规则开发与发布 SKILL 包——导入方式、包规范、审核校验项、收费披露与自动检测、购买下载、远程 zip + json 自更新发布）。同时把「改完自动上传、按 ID 升级、项目目录开发记录」写进主流程与对话模板，使技能既能开发网站与 Python 项目，也能按平台规则开发 API 与 SKILL，并主动引导用户托管密钥、创建知识库与数据库。
+
 
 ## About SKILL
 Develop and upload to VicroCode in one sentence — no more stressing over tech stack decisions and endless costs.
@@ -50,6 +54,10 @@ WebCraft v105 adds one-click agent upload and auto-deploy: a `vco-wc-` 智能部
 WebCraft v106 unifies token prefixes: the agent-deploy token moves from `sk-wc-` to `vco-wc-`, and the standalone-database token from `vco_YYYYMMDD_` to `vco-data-` (legacy prefixes keep working).
 
 WebCraft v107 hardens the agent deploy flow against three silent "code changed but the site did not" failures: the platform refuses file writes while an app is running, so `deploy` now stops the project, uploads, and automatically brings it back online; the upload idempotency key is now unique per request (content-derived keys made repeat uploads return a cached success without writing files); and Python startup failures are diagnosed from the process log, so deterministic problems such as a missing dependency or a syntax error are no longer retried blindly and come back with a fix suggestion plus the log tail.
+
+WebCraft v108 adds automatic post-change upload, upgrade-by-ID, and a project-local dev log: after every develop or modify pass the agent runs `sync`, so the new version is uploaded without the user asking again; passing `--id <project id>` upgrades that app only and never creates a duplicate (the ID remembered in `.vicrocode/deploy.json` keeps working too); and each change plus its upload result is appended to `<project>/.vicrocode/dev-log.md` (plus `dev-log.jsonl`) so the local history stays complete. The dev log is local-only and is never uploaded, committed, or delivered. See `references/agent-deploy.md`.
+
+WebCraft v109 turns the skill into a platform capability front door: it adds `references/platform-capability-map.md` (which platform capability to use for third-party secrets, models, document retrieval, structured records, reusable HTTP functions, file storage and skill publishing — with the creation entry point, the identifier to ask the user for, the runtime contract and the token prefix, plus the standard guidance wording) and `references/skill-development-and-publishing.md` (developing and publishing a VicroCode SKILL by the platform rules: import paths, package shape, review checks, fee disclosure and auto-detection, purchase/download, and the remote zip + json self-update release). The automatic post-change upload, upgrade-by-ID and project-local dev log are now part of the main workflow and the dialogue template, so the skill covers website and Python projects as well as platform-style APIs and SKILLs, and always guides the user to hosted credentials, knowledge bases and databases instead of workarounds.
 
 
 ## 安装方法

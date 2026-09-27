@@ -1,10 +1,10 @@
 {
   "name": "webcraft",
   "display_name": "WebCraft",
-  "description": "Build and secure VicroCode-ready web apps and hosted Python API tools with runtime, storage, data-delivery isolation, schema, dependency, credential, testing, and publishing guidance, plus one-click agent upload/deploy via the vco-wc- smart-deploy token.",
+  "description": "Build and secure VicroCode-ready web apps and hosted Python API tools with runtime, storage, data-delivery isolation, schema, dependency, credential, testing, and publishing guidance, plus one-click agent upload/deploy via the vco-wc- smart-deploy token, automatic re-upload after every change, project-id upgrades that never create duplicates, a project-local development log, a platform capability map (hosted credentials, knowledge bases, databases, model center, API tools, skill publishing), and the platform rules for developing and publishing API endpoints and SKILL packages.",
   "category": "Development",
-  "tags": ["web-builder", "api-endpoint", "deploy", "agent-deploy", "monetization", "credential-vault", "cloning", "runtime-data", "flask", "python", "sqlite", "ai-integration", "no-server"],
-  "version": "v107",
+  "tags": ["web-builder", "api-endpoint", "skill-development", "platform-capabilities", "credential-vault", "knowledge-base", "database", "deploy", "agent-deploy", "auto-upload", "upgrade-by-id", "dev-log", "monetization", "cloning", "runtime-data", "flask", "python", "sqlite", "ai-integration", "no-server"],
+  "version": "v109",
   "author": "zhengqia",
   "homepage": "https://github.com/zhengqia/WebCraft",
   "license": "MIT"

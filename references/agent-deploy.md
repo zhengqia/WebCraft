@@ -43,6 +43,7 @@ The script keeps a local record in the project root so later runs are automatic:
 
 Rules:
 - This file holds a token, so it is **local only**. Never upload it, commit it, or copy its contents into any file that ships.
+- The same folder keeps the project-local dev log: `.vicrocode/dev-log.md` (human readable) and `.vicrocode/dev-log.jsonl` (one JSON object per line). Every develop / modify / upload / run / stop / metadata action appends an entry, so the project carries its own history of what changed and when it was uploaded. It is local-only as well.
 - Add `.vicrocode/` to `.gitignore`; the script reminds the user when a `.git` directory or `.gitignore` is present.
 - The platform also strips `.vicrocode/` on ingest, in clone snapshots, in source packages, and in source delivery — this is a safety net, not an excuse to ship it.
 
@@ -56,15 +57,21 @@ Run from the project directory (or pass `--dir <path>`).
 |---|---|
 | `whoami` | Validate the token and show the bound account and quota. |
 | `preflight` | Detect project type, entry file, dynamic data, sensitive files, and size problems before uploading. Add `--with-files` to also read the page `<title>`/`<meta>`; add `--dry-run` for a local-only scan. |
-| `deploy` | Create or update the project. Auto-fills title/description/tags/TDK. Prints the run URL. Idempotent; skips when content is unchanged (`--force` to re-upload). |
+| `deploy` | Create or update the project. With `--id <project id>` (or an existing record) it only updates that app and never creates a new one. Auto-fills title/description/tags/TDK. Prints the run URL. Idempotent; skips when content is unchanged (`--force` to re-upload). |
+| `sync` | Finish a develop / modify pass: record the change locally and upload it in one step (`--summary`, `--files`). |
+| `log` | Append a develop / modify entry to the project-local dev log without touching the platform. |
 | `run` | Start/restart the Python app and poll until success or failure (`--no-wait` to submit and return). |
 | `status` | Query deploy status, health, and log tail. |
 | `stop` | Stop the running app. |
 | `metadata` | Update title/description/tags/TDK/publish status without touching files. |
 
 Common flags: `--dir`, `--site cn|global`, `--site-base https://...`, `--token vco-wc-...`,
-`--manifest manifest.json`, `--title`, `--description`, `--tags a,b`, `--directory-name`,
-`--publish-status draft|private|approved`, `--json`.
+`--id 1234`, `--manifest manifest.json`, `--title`, `--description`, `--tags a,b`,
+`--directory-name`, `--publish-status draft|private|approved`, `--json`.
+
+`--id` is the explicit upgrade switch: pass the project ID (for example `--id 1234`) and the
+upload only updates that app — a new project is never created. The ID is remembered in
+`.vicrocode/deploy.json`, so later runs keep updating the same app automatically.
 
 Token resolution order: `--token` → `VICROCODE_DEPLOY_TOKEN` env → record file.
 Site resolution order: `--site` → `VICROCODE_SITE` → record file → `cn`.
@@ -149,3 +156,54 @@ The platform returns a stable `code` on failures. Map them to concrete fixes:
 3. Every declared data file is an empty template (no real records).
 4. No `.env`, private keys, `.git/`, `node_modules/`, or `.vicrocode/` would be uploaded (the script filters them and reports what it skipped).
 5. The `vco-wc-` token was never written into project source or logs.
+
+---
+
+## 9. Upgrading an existing app (never create a duplicate)
+
+Three ways to target an existing project, in priority order:
+
+1. `--id <project id>` — the user says "升级应用 1234" or gives an ID. The upload becomes a
+   strict update of that project (`--id` overrides the record file) and a new project is never
+   created. If the ID does not belong to the token owner, the platform answers
+   `PROJECT_NOT_FOUND` and the script tells the user to check the ID.
+2. The record file `.vicrocode/deploy.json` — it already stores `project_id` from the first
+   successful upload, so plain `deploy` / `sync` keeps updating the same app.
+3. `directory_name` — used only when there is no ID and no record; if that name is free, a new
+   project is created.
+
+When neither a record nor an ID exists and the user wants an existing project updated, ask for
+the project ID before uploading.
+
+```bash
+# upgrade app #1234 with the current folder contents
+python scripts/vicrocode_deploy.py sync --dir . --id 1234 --summary "修复手机端布局" --files index.html,style.css
+
+# same, upload only (no local change entry)
+python scripts/vicrocode_deploy.py deploy --dir . --id 1234
+```
+
+---
+
+## 10. Project-local dev log
+
+The script appends one entry per action to `<project>/.vicrocode/dev-log.md`:
+
+```markdown
+## 2026-09-27 21:05:11+0800 — modify [ok]
+- 说明：修复手机端布局
+- 项目：#1234  https://www.vicoco.cn/p/1234/
+- 涉及文件（2）：index.html、style.css
+```
+
+- Written automatically by `sync` (action `modify` + `upload`), `deploy` (`upload`, also
+  `skipped` / `failed`), `run` (`run`), `stop` and `metadata`.
+- Add an entry by hand when you changed something outside the deploy flow:
+
+```bash
+python scripts/vicrocode_deploy.py log --dir . --summary "重写导出逻辑" --files app.py
+```
+
+- The same data is appended to `.vicrocode/dev-log.jsonl` for scripts.
+- Both files stay local: never upload, commit, or deliver them, and keep `.vicrocode/` in
+  `.gitignore`.

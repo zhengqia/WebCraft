@@ -46,6 +46,22 @@ If the app will use Python and the version is still unclear, ask:
 如果没有特殊依赖，默认我会按 3.10 来做。当前先不要按 3.12+ 设计。
 ```
 
+## 1.9 Platform Capability Check
+
+Before building anything that needs a secret, documents, records, files, or a reusable
+function, check whether the platform already provides it. Read
+`references/platform-capability-map.md` and ask only what the user still has to decide:
+
+```text
+这个需求平台已经有现成能力，不用自己搭：
+1. 要调用别人的付费接口（支付 / 短信 / 地图 / OAuth…）→ 用「密钥托管」，只需要给我项目内标识码。
+2. 要查资料、做问答 → 用「知识库」，你建好把公开 ID 给我。
+3. 要存订单 / 会员 / 配置数据 → 用平台「数据库」，把公开 ID 和表名给我。
+4. 要让别人通过 HTTP 调用你的功能 → 用「API 端点托管」。
+5. 要把这套能力打包给别的智能体用 → 用「技能开发」上架。
+用平台能力就不需要你买服务器、也不需要把密钥写进代码。
+```
+
 ## 2. Second Decision: Does The App Need AI
 
 If unclear, ask:
@@ -96,6 +112,12 @@ If the user says yes, use the agent-deploy flow (`references/agent-deploy.md`). 
 （令牌只保存在你本地 .vicrocode/deploy.json，不会上传到平台）
 ```
 
+After the first upload, every later change is uploaded automatically with `deploy` / `sync`.
+When the user wants to update an app that already exists, ask for its project ID and pass
+`--id <project id>` so the platform updates that app instead of creating a duplicate.
+A SKILL aimed at other agents is a different deliverable: see
+`references/skill-development-and-publishing.md`.
+
 ## 5. Required Guidance When No API Credential Is Present
 
 If the app needs authenticated APIs and Credential Vault or cloning is planned, say something equivalent to:
@@ -124,4 +146,5 @@ When finishing a build, the skill should normally remind the user of the next pl
 2. 一键上传：让我直接帮你上传（标题/描述/TDK 自动生成），完成后给你网址
 3. 需要手动控制时，再去 /project-upload-website 上传、/project-manage 管理定价和发布
 4. 如果开启克隆：先扫描通过，再提交管理员审核
+5. 之后每次改动我都会自动帮你更新（不用再说「上传」）；如果要更新某个已有应用，把它的项目 ID 告诉我就行
 ```

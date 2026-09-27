@@ -21,7 +21,13 @@ Before doing any implementation work:
 8. Use [references/dialogue-template.md](references/dialogue-template.md) as the default conversation pattern when required information is still missing.
 9. Load [references/vicrocode-platform-playbook.md](references/vicrocode-platform-playbook.md) when the user needs a platform resource, beginner setup guidance, model-center integration, upload/publish help, SEO, or multilingual routing.
 10. Read [references/runtime-data-and-cloning-isolation.md](references/runtime-data-and-cloning-isolation.md) whenever the project stores state in files (JSON / JS / CSV) instead of SQLite, or whenever the project may be cloned, delivered, or sold as source. This is mandatory before finishing such a project.
-11. When the user asks to upload, update, or deploy the finished project to VicroCode (e.g. "上传到 VicroCode", "更新到 VicroCode", "部署"), read [references/agent-deploy.md](references/agent-deploy.md) and use `scripts/vicrocode_deploy.py` instead of sending the user to the browser upload page.
+11. Read [references/agent-deploy.md](references/agent-deploy.md) and use `scripts/vicrocode_deploy.py` for every develop / modify / upload cycle:
+    - when the user asks to upload, update, or deploy (e.g. "上传到 VicroCode", "更新到 VicroCode", "部署", "升级应用"), never send them to the browser upload page;
+    - when you modify or repair an existing project, upload the result yourself at the end of the change (default command: `sync`) — do not wait for the user to ask again;
+    - when the user gives a project ID (e.g. "升级应用 1234"), pass `--id 1234` so the upload only updates that app and never creates a new one;
+    - record every develop / modify action in the project directory (`log`, or automatically through `sync` / `deploy`).
+12. Read [references/platform-capability-map.md](references/platform-capability-map.md) whenever the user asks whether the platform can do something, or when the task needs a secret, an AI model, a searchable knowledge base, a database, a reusable API, or a published skill. Prefer platform-hosted capabilities over self-hosting or buying third-party infrastructure, and guide the user to create the resource in the platform UI.
+13. Read [references/skill-development-and-publishing.md](references/skill-development-and-publishing.md) when the user wants to package a capability as a VicroCode SKILL, publish or update a skill in the marketplace, or ship a remote self-update package (zip + json).
 
 ## Idea Discovery
 
@@ -48,7 +54,9 @@ If the user is still unsure, give 3-5 concrete app directions in `input -> outpu
 1. Detect the target product first:
    - VicroCode website application
    - VicroCode hosted API endpoint
-   If it is an API endpoint, follow `references/api-endpoint-development.md`; do not generate a Flask/FastAPI server, frontend, `/p/{id}` route, `python-proxy` route, SQLite database, or website runtime tree.
+   - VicroCode SKILL package
+   - platform resource request (hosted credential, knowledge base, database, model key, file storage)
+   If it is an API endpoint, follow `references/api-endpoint-development.md` and do not generate a Flask/FastAPI server, frontend, `/p/{id}` route, `python-proxy` route, SQLite database, or website runtime tree. If it is a SKILL package, follow `references/skill-development-and-publishing.md` and keep its own package shape, review flow, and fee disclosure. If the user asks where a platform capability lives, follow `references/platform-capability-map.md` and guide the user instead of building a workaround.
 2. Detect or ask for the target site flavor first:
    - Chinese / domestic site
    - English / global site
@@ -113,6 +121,10 @@ If the user is still unsure, give 3-5 concrete app directions in `input -> outpu
     - hosted API proxy behavior, secret-removal scan, platform API-connectivity results, and clone binding when relevant
     - monetization or charging logic when relevant
     - declared runtime data paths, empty-template contents, and the `scan_runtime_data.py` result when the app uses file storage
+16. Always close the loop for an existing or a new project:
+    - run `python scripts/vicrocode_deploy.py sync --dir <project> --summary "<what changed>" --files <changed files>` so the change is uploaded automatically and recorded in the project directory;
+    - target an existing app with `--id <project id>` (or the `.vicrocode/deploy.json` record) instead of creating a duplicate project;
+    - for a first-time upload, ask the user whether to create a new project or upgrade an existing one, and ask for the project ID when they choose to upgrade.
 
 ## Managed data resources
 
@@ -162,6 +174,8 @@ When building or repairing a public tool:
 
 ## Non-Negotiables
 
+- Prefer platform-hosted capabilities before writing custom integrations: Credential Vault for third-party secrets, AI Model Center for models, knowledge bases for document retrieval, managed databases for structured records, API Endpoint Hosting for reusable HTTP functions, and SKILL packages for reusable agent capability. Read `references/platform-capability-map.md`, guide the user to create the resource in the platform UI, and ask only for the public identifier — never for the raw secret.
+- When the user wants a reusable capability packaged for other agents, follow `references/skill-development-and-publishing.md` instead of inventing a new package format.
 - Prefer same-origin `/api/...` in production unless the task explicitly requires cross-origin deployment.
 - Treat hosted API endpoints as a separate product from website Python projects. Use root workspace files, `handler(payload, context)`, JSON schemas, restricted dependencies, and the API Endpoint Hosting review flow described in `references/api-endpoint-development.md`.
 - For Credential Vault integrations, use the project-relative `__vicro_proxy__/{identifier}/{upstreamPath}` contract; do not hardcode a project ID, VicroCode domain, provider secret, or `/api/project-proxy/{id}` into browser code.
@@ -170,6 +184,9 @@ When building or repairing a public tool:
 - Treat the hosted API identifier as a stable code contract. Preserve it across source updates so clones can bind their own credentials without code changes.
 - A project prepared for cloning must not ship `.env`, `.env.*`, private-key files, service-account files, or hard-coded credentials. Run `scripts/check_clone_secrets.py <project-dir>` before upload when the WebCraft package is available.
 - The agent-deploy record file (`.vicrocode/deploy.json`) holds the user's `vco-wc-` token and must never be uploaded, committed, or delivered. Keep it local only, add `.vicrocode/` to `.gitignore`, and never copy its contents into project source, logs, or any file that ships.
+- The project-local dev log (`.vicrocode/dev-log.md` and `.vicrocode/dev-log.jsonl`) is local-only too: it records every develop / modify / upload action and must never be uploaded, committed, or delivered.
+- Never wait for the user to ask for the upload. When you develop or modify a project, finish the pass by running `scripts/vicrocode_deploy.py sync` (or `deploy`) yourself.
+- Never create a duplicate project when the user wants to upgrade an existing app: use `--id <project id>` or the `.vicrocode/deploy.json` record, and ask for the ID while it is still unknown.
 - All user-facing prompts, confirmations, warnings, loading states, and errors must be presented through webpage overlay UI instead of native browser dialogs.
 - Destructive or sensitive operations must not execute until the user confirms through a webpage overlay.
 - Treat `/api/python-proxy/{projectId}/` as the real runtime entry for Python-backed projects.
@@ -248,9 +265,11 @@ agent-deploy path instead of sending them to the browser upload page. Read
 
 1. Run `python scripts/vicrocode_deploy.py preflight --dir <project>` to detect project type, entry files, dynamic data declarations, sensitive files, and size problems. Fix every issue it reports.
 2. If no token is configured yet, the script tells the user exactly where to create one (a "智能部署" token, prefix `vco-wc-`). Ask for it once, then run `deploy --token vco-wc-...`; the script stores it in `.vicrocode/deploy.json`.
-3. Run `python scripts/vicrocode_deploy.py deploy --dir <project>`. The script auto-generates title / description / tags / TDK from `manifest` and the page `<title>`/`<meta>`, uploads files, and prints the run URL. Later runs are fully automatic (the token, project id and directory name are read from the record file).
-4. For Python projects, the deploy result reports `is_python` and the entry file. The platform refuses to write files while the app is running, so `deploy` **stops the app, uploads, and automatically re-deploys it** when the project was already deployed — you do not need to stop it by hand. On a first-time upload, ask the user whether to bring it online, then run `python scripts/vicrocode_deploy.py run --dir <project>` (which auto-restarts when the app is already live, so new code always takes effect). The platform retries transient failures, and on real failures it returns a structured diagnosis (`PYTHON_MISSING_DEP`, `PYTHON_SYNTAX`, …) plus the log tail so you can fix the code; deterministic failures are not retried blindly.
-5. Tell the user the final URL (`https://www.vicoco.cn/p/{id}/` on the CN site, `https://www.vicrocode.com/p/{id}/` on the global site).
+3. After every develop / modify pass run `python scripts/vicrocode_deploy.py sync --dir <project> --summary "<what changed>" --files <changed files>` so the change is recorded locally and uploaded automatically (use plain `deploy` when you only need the upload). The script auto-generates title / description / tags / TDK from `manifest` and the page `<title>`/`<meta>`, uploads files, and prints the run URL. Later runs are fully automatic (the token, project id and directory name are read from the record file).
+4. Upgrade instead of re-create: keep updating the app the record file points at, or pass `--id <project id>` when the user names a project / asks to upgrade an app. With `--id` the upload is strictly an update — a new project is never created. When neither a record nor an ID exists, ask the user whether to create a new project or upgrade an existing one before uploading.
+5. Leave a project-local record of the work: `sync`, `deploy`, `run`, `stop` and `metadata` append to `.vicrocode/dev-log.md` (+ `dev-log.jsonl`); write a manual entry with `python scripts/vicrocode_deploy.py log --dir <project> --summary "..." --files a,b`. The dev log is local-only — never upload, commit, or deliver it.
+6. For Python projects, the deploy result reports `is_python` and the entry file. The platform refuses to write files while the app is running, so `deploy` **stops the app, uploads, and automatically re-deploys it** when the project was already deployed — you do not need to stop it by hand. On a first-time upload, ask the user whether to bring it online, then run `python scripts/vicrocode_deploy.py run --dir <project>` (which auto-restarts when the app is already live, so new code always takes effect). The platform retries transient failures, and on real failures it returns a structured diagnosis (`PYTHON_MISSING_DEP`, `PYTHON_SYNTAX`, …) plus the log tail so you can fix the code; deterministic failures are not retried blindly.
+7. Tell the user the final URL (`https://www.vicoco.cn/p/{id}/` on the CN site, `https://www.vicrocode.com/p/{id}/` on the global site).
 
 Upload must satisfy the platform rules exactly as the browser upload page does — the same
 validation runs on the server. The agent-side script additionally:

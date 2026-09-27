@@ -9,9 +9,13 @@ Use this guide when a developer is unfamiliar with VicroCode and needs a complet
 | Static HTML/React/Vite website | WebCraft website project | UI and same-origin API calls |
 | Python business logic | Python project + `/api/python-proxy/{projectId}/` | Python handlers and runtime files |
 | Reusable HTTP function | API Endpoint Hosting | `handler(payload, context)` and JSON schema; no Flask server |
+| Reusable capability for other agents | SKILL development (`/user-center/skill-development`) | `SKILL.md`, references, scripts, review and fee disclosure |
+| Hosted third-party credential | Credential Vault (`/credential-vault`) | provider address plus a stable identifier; no secret in source |
 | Searchable documents | Knowledge Base manager | ingestion, segmentation, retrieval and access scope |
 | Structured records | Database manager | SQLite tables, rows, backup and API scope |
 | User files | File manager | uploads, metadata, previews and account quota |
+
+For the exact creation entry points, token prefixes, runtime contracts and the step-by-step guidance to give the user, read `references/platform-capability-map.md`.
 
 For an existing app, audit its route, API calls, persistence and upload assumptions before changing the design. Keep a small, compatible patch when possible.
 
@@ -64,7 +68,7 @@ Collect provider, protocol family, base URL, model, capability and credential so
 ## 6. Upload, publish and clone
 
 1. Run route, persistence, secret-scan and API-connectivity checks locally.
-2. Prefer the agent one-click upload: `python scripts/vicrocode_deploy.py deploy --dir <project>` (see `references/agent-deploy.md`). It uploads/updates with the same server-side rules as the browser page and returns the run URL. Use the browser `/project-upload-website` page only when the user asks for manual control.
+2. Prefer the agent deploy path: run `python scripts/vicrocode_deploy.py sync --dir <project> --summary "<what changed>"` after every change (see `references/agent-deploy.md`). It records the change in the project directory, uploads/updates with the same server-side rules as the browser page, and returns the run URL. Pass `--id <project id>` to upgrade an existing app instead of creating a new project. Use the browser `/project-upload-website` page only when the user asks for manual control.
 3. Manage domains, visibility, locales and runtime settings in `/project-manage`.
 4. For clone-ready projects, create stable hosted API identifiers in Credential Vault, replace direct provider calls, remove `.env`/private keys, run the clone secret scan, then pass the source-rule and API-connectivity checks before clone review.
 5. Keep public links same-origin and generate canonical, hreflang, sitemap, title, description, structured data and readable fallback HTML for each published locale.
