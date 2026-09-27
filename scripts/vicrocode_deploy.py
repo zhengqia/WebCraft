@@ -27,11 +27,15 @@ Usage::
     python scripts/vicrocode_deploy.py status   --dir .      # deploy status
     python scripts/vicrocode_deploy.py stop     --dir .      # stop the app
 
-Upload is self-filling: the project name, description, TDK and tags are generated
-from the page (`<title>` / meta / visible text) when the manifest does not provide
-them, and three screenshots (desktop / tablet / mobile) are captured automatically
-with a local Chrome or Edge. Use ``--screenshots a.png,b.png`` to supply your own
-images, ``--no-screenshot`` to skip, or ``--browser <path>`` to point at a browser.
+Before uploading, the agent generates the project name, description, TDK, tags and the
+screenshots itself (read the page, write the copy, capture desktop + mobile images) and
+passes them in through the manifest and ``--screenshots a.png,b.png``. This script only
+checks what is still missing and uploads it; ``--auto-metadata`` / ``--auto-screenshot``
+are last-resort fallbacks for when the agent really cannot generate them.
+
+A new project is saved as a draft by default. Updating an existing project keeps its
+current publish status (the platform upgrades a draft when files are updated, and the
+script reports that warning).
 
 Every develop/upload action is also appended to the project-local dev log
 (``<project>/.vicrocode/dev-log.md`` and ``.vicrocode/dev-log.jsonl``), which is
@@ -603,7 +607,31 @@ def derive_project_metadata(project_dir: Path, manifest: dict | None = None) -> 
 
 
 # ---------------------------------------------------------------------------
-# automatic screenshots
+# agent-provided metadata checks
+# ---------------------------------------------------------------------------
+
+AGENT_METADATA_FIELDS = ("title", "description", "tags", "seo_title", "seo_description", "seo_keywords")
+
+
+def _missing_agent_metadata(manifest: dict) -> list[str]:
+    """返回智能体还没提供的元数据字段。
+
+    正常情况下这些字段由智能体读页面后自己写好再上传；脚本只在
+    ``--auto-metadata`` 时才用本地推导兜底。
+    """
+    missing: list[str] = []
+    for field in AGENT_METADATA_FIELDS:
+        value = manifest.get(field)
+        if isinstance(value, (list, tuple)):
+            if not value:
+                missing.append(field)
+        elif not str(value or "").strip():
+            missing.append(field)
+    return missing
+
+
+# ---------------------------------------------------------------------------
+# screenshots (captured on demand — the agent decides when to use them)
 # ---------------------------------------------------------------------------
 
 def find_browser(explicit: str = "") -> str:
@@ -1056,12 +1084,18 @@ def command_preflight(args) -> int:
         return die(f"目录不存在：{project_dir}")
 
     manifest = build_manifest(args, project_dir, record)
-    auto_metadata = derive_project_metadata(project_dir, manifest)
-    for key, value in auto_metadata.items():
-        if not manifest.get(key):
-            manifest[key] = value
+    missing_metadata = _missing_agent_metadata(manifest)
+    derived_metadata: dict = {}
+    if missing_metadata and getattr(args, "auto_metadata", False):
+        derived_metadata = derive_project_metadata(project_dir, manifest)
+        for key, value in derived_metadata.items():
+            if not manifest.get(key):
+                manifest[key] = value
+        missing_metadata = _missing_agent_metadata(manifest)
     files, skipped = collect_files(project_dir, args.only)
+    files = _drop_manifest_file(files, args, project_dir)
     problems = check_sizes(files)
+    cached_shots = _reusable_screenshots(project_dir / RECORD_DIR / SCREENSHOT_DIR, project_dir)
     browser_path = find_browser(str(getattr(args, "browser", "") or ""))
 
     if args.dry_run or not token:
@@ -1074,8 +1108,10 @@ def command_preflight(args) -> int:
                 "skipped": skipped,
                 "problems": problems,
                 "manifest": manifest,
-                "auto_metadata": auto_metadata,
+                "missing_agent_metadata": missing_metadata,
+                "auto_metadata_fallback": derived_metadata,
                 "screenshots": {
+                    "cached": [path.name for path in cached_shots],
                     "browser": browser_path,
                     "viewports": [f"{name} {width}x{height}" for name, width, height in SCREENSHOT_VIEWPORTS],
                 },
@@ -1084,14 +1120,20 @@ def command_preflight(args) -> int:
         if not token:
             info("未检测到令牌，已执行本地预检（配置令牌后可做平台预检）。")
         if not args.json:
-            info(f"自动生成项目名：{manifest.get('title', '')}")
-            info(f"自动生成描述：{manifest.get('description', '')}")
-            info(f"自动生成标签：{'、'.join(manifest.get('tags') or [])}")
-            info(f"自动生成 TDK：{manifest.get('seo_title', '')} / {manifest.get('seo_description', '')}")
-            if browser_path:
-                info("自动截图可用：桌面 1440x900、平板 1024x768、手机 390x844")
+            if missing_metadata:
+                info("[待生成] 上传前请自己生成这些内容并写进 manifest：" + "、".join(missing_metadata))
             else:
-                info("[提示] 未找到 Chrome / Edge，自动截图会被跳过（可用 --browser 指定浏览器路径）。")
+                info("元数据齐全：项目名 / 描述 / TDK / 标签都已提供。")
+            info(f"项目名：{manifest.get('title', '') or '-'}")
+            info(f"描述：{manifest.get('description', '') or '-'}")
+            info(f"标签：{'、'.join(manifest.get('tags') or []) or '-'}")
+            info(f"TDK：{manifest.get('seo_title', '') or '-'} / {manifest.get('seo_description', '') or '-'} / {manifest.get('seo_keywords', '') or '-'}")
+            if cached_shots:
+                info(f"截图：已有 {len(cached_shots)} 张本地截图（{RECORD_DIR}/{SCREENSHOT_DIR}/）")
+            else:
+                info("截图：还没有。请自己截好桌面 + 移动两张，再用 --screenshots a.png,b.png 上传。")
+            if browser_path:
+                info(f"本机浏览器：{browser_path}（需要脚本兜底截图时才用 --auto-screenshot）")
         return _print_payload(payload, args.json, problems)
 
     body_files: list[tuple[str, str, bytes]] = []
@@ -1208,10 +1250,29 @@ def _start_project(token: str, base_url: str, project_id: int) -> tuple[int, dic
     )
 
 
+def _drop_manifest_file(
+    files: list[tuple[str, Path]],
+    args,
+    project_dir: Path,
+) -> list[tuple[str, Path]]:
+    """``--manifest meta.json`` 是给脚本看的，别把它当源码传上去。"""
+    raw = str(getattr(args, "manifest", "") or "").strip()
+    if not raw:
+        return files
+    path = Path(raw)
+    if not path.is_absolute():
+        path = project_dir / path
+    try:
+        relative = normalize_rel_path(str(path.resolve().relative_to(project_dir)))
+    except (ValueError, OSError):
+        return files
+    if not relative:
+        return files
+    return [(item_relative, item_absolute) for item_relative, item_absolute in files if item_relative != relative]
+
+
 def _resolve_screenshots(args, project_dir: Path, manifest: dict) -> tuple[list[Path], str]:
-    """决定本次上传用哪些截图：显式指定 > 自动生成 > 明确跳过。"""
-    if getattr(args, "no_screenshot", False):
-        return [], "已按 --no-screenshot 跳过自动截图"
+    """决定本次上传用哪些截图：智能体指定 > 复用已有 > 明确跳过 > 兜底生成。"""
     explicit = split_list(getattr(args, "screenshots", ""))
     if explicit:
         shots: list[Path] = []
@@ -1226,11 +1287,21 @@ def _resolve_screenshots(args, project_dir: Path, manifest: dict) -> tuple[list[
         if missing:
             note += "；未找到：" + "、".join(missing)
         return shots[:MAX_SCREENSHOTS], note
-    return generate_screenshots(
-        project_dir,
-        manifest,
-        browser=str(getattr(args, "browser", "") or ""),
-        force=bool(getattr(args, "force", False)),
+    if getattr(args, "no_screenshot", False):
+        return [], "已按 --no-screenshot 跳过截图"
+    cached = _reusable_screenshots(project_dir / RECORD_DIR / SCREENSHOT_DIR, project_dir)
+    if cached:
+        return cached, f"复用已有的 {len(cached)} 张截图（{RECORD_DIR}/{SCREENSHOT_DIR}/）"
+    if getattr(args, "auto_screenshot", False):
+        return generate_screenshots(
+            project_dir,
+            manifest,
+            browser=str(getattr(args, "browser", "") or ""),
+            force=bool(getattr(args, "force", False)),
+        )
+    return [], (
+        "未提供截图：请先自己截好桌面 + 移动两张，再用 --screenshots a.png,b.png 上传；"
+        "也可用 screenshot 子命令，或在确实无法截图时加 --auto-screenshot 让脚本兜底"
     )
 
 
@@ -1250,19 +1321,22 @@ def command_deploy(args) -> int:
     if explicit_id:
         info(f"[升级模式] 目标项目 #{explicit_id}：只更新文件，不会新建项目。")
 
-    # 项目名 / 描述 / TDK / 标签：只补 manifest 没写的字段（页面 meta → 正文推导兜底）
-    auto_metadata = derive_project_metadata(project_dir, manifest)
-    generated_fields = [key for key, value in auto_metadata.items() if not manifest.get(key)]
-    for key, value in auto_metadata.items():
-        if not manifest.get(key):
-            manifest[key] = value
-    if generated_fields:
-        info("[自动生成] 已补全：" + "、".join(generated_fields))
-        info(f"  项目名：{manifest.get('title', '')}")
-        info(f"  描述：{manifest.get('description', '')}")
-        info(f"  标签：{'、'.join(manifest.get('tags') or [])}")
+    # 项目名 / 描述 / TDK / 标签：由智能体读页面后自己生成并写进 manifest；
+    # 脚本只做完整性检查，只有显式加 --auto-metadata 时才用本地推导兜底。
+    missing_metadata = _missing_agent_metadata(manifest)
+    if missing_metadata and getattr(args, "auto_metadata", False):
+        derived = derive_project_metadata(project_dir, manifest)
+        for key, value in derived.items():
+            if not manifest.get(key):
+                manifest[key] = value
+        info("[兜底] 已用脚本推导补全：" + ("、".join(_missing_agent_metadata(manifest)) or "（已补全）"))
+        missing_metadata = _missing_agent_metadata(manifest)
+    if missing_metadata:
+        info("[待生成] 下列内容应由你在上传前读页面后生成并写进 manifest：" + "、".join(missing_metadata))
+        info("         做法见 references/agent-deploy.md 第 11 节；脚本仅在 --auto-metadata 时做质量有限的兜底。")
 
     files, skipped = collect_files(project_dir, args.only)
+    files = _drop_manifest_file(files, args, project_dir)
     if not files:
         return die("没有可上传的文件（检查 --only 或目录是否为空）")
     problems = check_sizes(files)
@@ -1419,8 +1493,16 @@ def command_deploy(args) -> int:
 
     info(f"上传成功（{data.get('action')}）：项目 #{data.get('project_id')}")
     info(f"网址：{run_url}")
-    for warning in data.get("warnings") or []:
+    warnings = [str(item) for item in (data.get("warnings") or [])]
+    for warning in warnings:
         info(f"[提示] {warning}")
+    if data.get("created") or str(data.get("action") or "") == "create":
+        info(
+            "[发布状态] 新项目默认保存为草稿（不公开）。要提交到公域 / 鬼斧神工市场，"
+            "可以让我加 --publish-status approved 再更新，或在 /project-manage 里自行发布。"
+        )
+    elif not any(("私域" in item) or ("草稿" in item) for item in warnings):
+        info("[发布状态] 更新不会改变项目原有的公开 / 私域设置。")
     uploaded_files = [relative for relative, _ in files]
     append_dev_log(
         project_dir,
@@ -1815,7 +1897,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_common(p, with_manifest=True)
     p.add_argument("--dry-run", action="store_true", help="只做本地检查，不请求平台")
     p.add_argument("--with-files", action="store_true", help="连文件一起预检（能读到页面标题）")
-    p.add_argument("--browser", default="", help="用于自动截图的 Chrome / Edge 可执行文件路径")
+    p.add_argument("--auto-metadata", action="store_true", help="兜底：脚本推导元数据（正常应由智能体自己生成）")
+    p.add_argument("--browser", default="", help="兜底截图用的 Chrome / Edge 可执行文件路径")
     p.set_defaults(func=command_preflight)
 
     def add_deploy_flags(target):
@@ -1824,9 +1907,11 @@ def build_parser() -> argparse.ArgumentParser:
         target.add_argument("--no-wait", action="store_true", help="自动重新部署后不等待结果")
         target.add_argument("--interval", type=float, default=5.0, help="轮询间隔秒")
         target.add_argument("--wait-seconds", type=float, default=180.0, help="自动重新部署最长等待秒")
-        target.add_argument("--no-screenshot", action="store_true", help="不自动生成截图")
-        target.add_argument("--screenshots", default="", help="自己提供的截图，逗号分隔（相对项目根）")
-        target.add_argument("--browser", default="", help="用于自动截图的 Chrome / Edge 可执行文件路径")
+        target.add_argument("--screenshots", default="", help="本次上传的截图，逗号分隔（相对项目根）")
+        target.add_argument("--no-screenshot", action="store_true", help="本次不传截图")
+        target.add_argument("--auto-screenshot", action="store_true", help="兜底：脚本用本机浏览器自动截图（正常应由智能体自己截）")
+        target.add_argument("--auto-metadata", action="store_true", help="兜底：脚本推导项目名/描述/TDK/标签（正常应由智能体自己生成）")
+        target.add_argument("--browser", default="", help="兜底截图用的 Chrome / Edge 可执行文件路径")
 
     p = sub.add_parser("deploy", help="上传或更新项目（有记录或 --id 时只更新，不新建）")
     add_common(p, with_manifest=True)

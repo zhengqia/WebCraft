@@ -142,18 +142,26 @@ def check_metadata_generation() -> Path:
         encoding="utf-8",
     )
     meta = vd.derive_project_metadata(workdir, {})
-    check("自动生成项目名", bool(meta.get("title")), str(meta.get("title", "")))
-    check("自动生成描述", bool(meta.get("description")), str(meta.get("description", ""))[:60])
+    check("兜底推导项目名", bool(meta.get("title")), str(meta.get("title", "")))
+    check("兜底推导描述", bool(meta.get("description")), str(meta.get("description", ""))[:60])
     tags = meta.get("tags") or []
-    check("自动生成标签（1-5 个）", 1 <= len(tags) <= 5, "、".join(tags))
+    check("兜底推导标签（1-5 个）", 1 <= len(tags) <= 5, "、".join(tags))
     check(
-        "自动生成 TDK",
+        "兜底推导 TDK",
         all(meta.get(key) for key in ("seo_title", "seo_description", "seo_keywords")),
     )
     explicit = vd.derive_project_metadata(workdir, {"title": "自定义标题", "tags": ["报销", "财务"]})
     check(
         "manifest 显式值优先",
         explicit.get("title") == "自定义标题" and explicit.get("tags") == ["报销", "财务"],
+    )
+    check(
+        "缺失元数据能被检出",
+        vd._missing_agent_metadata({}) == list(vd.AGENT_METADATA_FIELDS),
+    )
+    check(
+        "元数据齐全时不报缺项",
+        vd._missing_agent_metadata(vd.derive_project_metadata(workdir, {})) == [],
     )
     browser = vd.find_browser()
     warn("检测到 Chrome / Edge（自动截图用）", bool(browser), browser or "未找到，上传时会跳过截图")
