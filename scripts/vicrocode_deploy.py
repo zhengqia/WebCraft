@@ -20,6 +20,7 @@ Usage::
     python scripts/vicrocode_deploy.py deploy   --dir . --manifest manifest.json
     python scripts/vicrocode_deploy.py deploy   --dir . --title "AI 去水印工具"
     python scripts/vicrocode_deploy.py deploy   --dir . --id 1234   # 只升级 #1234
+    python scripts/vicrocode_deploy.py deploy   --dir . --project-name my-tool   # 按项目名更新
     python scripts/vicrocode_deploy.py sync     --dir . --summary "改了什么" --files a.html,b.js
     python scripts/vicrocode_deploy.py log      --dir . --summary "只记一笔开发记录"
     python scripts/vicrocode_deploy.py screenshot --dir .    # auto screenshots
@@ -1036,6 +1037,11 @@ def build_manifest(args, project_dir: Path, record: dict) -> dict:
     if record.get("site") and not manifest.get("site"):
         manifest["site"] = record["site"]
 
+    # --project-name：按老项目名（项目目录名）更新，优先级高于记录里的目录名。
+    project_name = str(getattr(args, "project_name", "") or "").strip()
+    if project_name:
+        manifest["directory_name"] = project_name
+
     # --id 优先级最高：明确指定「升级哪个应用」时，只更新该项目，绝不新建。
     explicit_id = parse_project_id(getattr(args, "project_id", ""))
     if explicit_id:
@@ -1210,6 +1216,25 @@ def _print_payload(payload: dict, as_json: bool, problems: list[str] | None = No
     return 0
 
 
+def _probe_project_by_name(token: str, base_url: str, directory_name: str) -> dict:
+    """用一次轻量预检看看这个项目名是否已有项目（返回 preflight 的 data）。
+
+    平台按「项目目录名」匹配作者自己的项目，命中时 target_action=update 且返回 project_id。
+    """
+    name = str(directory_name or "").strip()
+    if not token or not name:
+        return {}
+    status, payload = http_call(
+        base_url=base_url,
+        path="/api/agent-deploy/v1/preflight/",
+        token=token,
+        fields=[("manifest", json.dumps({"directory_name": name}, ensure_ascii=False))],
+    )
+    if status >= 400 or payload.get("status") != "ok":
+        return {}
+    return payload.get("data") or {}
+
+
 def _project_state(token: str, base_url: str, project_id: int) -> dict:
     """查目标项目当前状态（失败时返回空字典，不影响主流程）。"""
     if not token or not project_id:
@@ -1318,6 +1343,7 @@ def command_deploy(args) -> int:
 
     manifest = build_manifest(args, project_dir, record)
     explicit_id = parse_project_id(getattr(args, "project_id", ""))
+    project_name = str(getattr(args, "project_name", "") or "").strip()
     if explicit_id:
         info(f"[升级模式] 目标项目 #{explicit_id}：只更新文件，不会新建项目。")
 
@@ -1334,6 +1360,29 @@ def command_deploy(args) -> int:
     if missing_metadata:
         info("[待生成] 下列内容应由你在上传前读页面后生成并写进 manifest：" + "、".join(missing_metadata))
         info("         做法见 references/agent-deploy.md 第 11 节；脚本仅在 --auto-metadata 时做质量有限的兜底。")
+
+    # 用项目名更新老项目：先探测这个名字是否已有项目，避免名字写错时误建一个重复项目。
+    if project_name and not explicit_id:
+        record_name = str(record.get("directory_name") or "").strip()
+        if not (int(record.get("project_id") or 0) and record_name == project_name):
+            probe = _probe_project_by_name(token, base_url, project_name)
+            probe_id = int(probe.get("project_id") or 0)
+            if str(probe.get("target_action") or "") == "update" and probe_id:
+                probe_url = str(probe.get("run_url") or "")
+                info(f"[匹配到老项目] 项目名 {project_name} → #{probe_id}{('（' + probe_url + '）') if probe_url else ''}，本次为更新。")
+                manifest["project_id"] = probe_id
+                record["project_id"] = probe_id
+                record["directory_name"] = project_name
+                if probe_url:
+                    record["run_url"] = probe_url
+            elif getattr(args, "create", False):
+                info(f"[新建] 项目名 {project_name} 没有匹配到已有项目，已按 --create 新建。")
+            else:
+                info(f"[未找到项目] 没有找到项目名「{project_name}」对应的已上传项目。")
+                info("  1) 核对项目名：在 /project-manage 里查看项目的「目录名」（只能是字母、数字、下划线、连字符）；")
+                info("  2) 或者直接给项目 ID：--id 1234；")
+                info("  3) 确实要新建一个新项目，请加 --create。")
+                return die(f"项目名 {project_name} 未匹配到已有项目", 2)
 
     files, skipped = collect_files(project_dir, args.only)
     files = _drop_manifest_file(files, args, project_dir)
@@ -1566,9 +1615,16 @@ def command_deploy(args) -> int:
 
 def _project_id(args) -> tuple[str, str, dict, int]:
     token, base_url, record = resolve_config(args)
-    manifest = build_manifest(args, Path(args.dir).expanduser().resolve(), record)
-    project_id = manifest.get("project_id") or record.get("project_id")
-    return token, base_url, record, int(project_id or 0)
+    project_dir = Path(args.dir).expanduser().resolve()
+    manifest = build_manifest(args, project_dir, record)
+    project_id = int(manifest.get("project_id") or record.get("project_id") or 0)
+    project_name = str(getattr(args, "project_name", "") or "").strip()
+    if not project_id and token and project_name:
+        # 允许 run / status / stop / metadata 也用项目名定位老项目
+        probe = _probe_project_by_name(token, base_url, project_name)
+        if str(probe.get("target_action") or "") == "update":
+            project_id = int(probe.get("project_id") or 0)
+    return token, base_url, record, project_id
 
 
 def command_run(args) -> int:
@@ -1875,6 +1931,12 @@ def build_parser() -> argparse.ArgumentParser:
             default="",
             help="要升级的项目 ID：只更新这个应用，不会新建（例如 --id 1234）",
         )
+        target.add_argument(
+            "--project-name",
+            dest="project_name",
+            default="",
+            help="按老项目名（项目目录名）更新，例如 --project-name my-tool；名字对不上时不会新建",
+        )
         if with_token:
             target.add_argument("--token", default="", help="智能部署令牌 vco-wc-...（只首次需要）")
             target.add_argument("--site", default="", help="站点：cn / global")
@@ -1903,6 +1965,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     def add_deploy_flags(target):
         target.add_argument("--force", action="store_true", help="忽略本地体积检查与内容未变化跳过")
+        target.add_argument("--create", action="store_true", help="配合 --project-name：名字没匹配到时也新建项目")
         target.add_argument("--no-save", action="store_true", help="不写入 .vicrocode/deploy.json")
         target.add_argument("--no-wait", action="store_true", help="自动重新部署后不等待结果")
         target.add_argument("--interval", type=float, default=5.0, help="轮询间隔秒")

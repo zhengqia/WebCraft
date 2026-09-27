@@ -57,7 +57,7 @@ Run from the project directory (or pass `--dir <path>`).
 |---|---|
 | `whoami` | Validate the token and show the bound account and quota. |
 | `preflight` | Detect project type, entry file, dynamic data, sensitive files, and size problems before uploading. Add `--with-files` to also read the page `<title>`/`<meta>`; add `--dry-run` for a local-only scan. |
-| `deploy` | Create or update the project. With `--id <project id>` (or an existing record) it only updates that app and never creates a new one. Auto-fills title/description/tags/TDK. Prints the run URL. Idempotent; skips when content is unchanged (`--force` to re-upload). |
+| `deploy` | Create or update the project. With `--id <project id>`, `--project-name <directory name>`, or an existing record it only updates that app and never creates a new one. Auto-fills title/description/tags/TDK. Prints the run URL. Idempotent; skips when content is unchanged (`--force` to re-upload). |
 | `sync` | Finish a develop / modify pass: record the change locally and upload it in one step (`--summary`, `--files`). |
 | `screenshot` | Capture desktop / tablet / mobile screenshots of the local project (or of a live URL with `--url`). |
 | `log` | Append a develop / modify entry to the project-local dev log without touching the platform. |
@@ -67,8 +67,8 @@ Run from the project directory (or pass `--dir <path>`).
 | `metadata` | Update title/description/tags/TDK/publish status without touching files. |
 
 Common flags: `--dir`, `--site cn|global`, `--site-base https://...`, `--token vco-wc-...`,
-`--id 1234`, `--manifest manifest.json`, `--title`, `--description`, `--tags a,b`,
-`--directory-name`, `--publish-status draft|private|approved`, `--json`.
+`--id 1234`, `--project-name my-tool`, `--create`, `--manifest manifest.json`, `--title`,
+`--description`, `--tags a,b`, `--directory-name`, `--publish-status draft|private|approved`, `--json`.
 
 Screenshot flags: `--screenshots a.png,b.png` (the images you captured yourself), `--no-screenshot`
 (skip them this time). `--auto-metadata`, `--auto-screenshot` and `--browser <path>` are emergency
@@ -166,23 +166,37 @@ The platform returns a stable `code` on failures. Map them to concrete fixes:
 
 ## 9. Upgrading an existing app (never create a duplicate)
 
-Three ways to target an existing project, in priority order:
+Four ways to target an existing project, in priority order:
 
 1. `--id <project id>` — the user says "升级应用 1234" or gives an ID. The upload becomes a
    strict update of that project (`--id` overrides the record file) and a new project is never
    created. If the ID does not belong to the token owner, the platform answers
    `PROJECT_NOT_FOUND` and the script tells the user to check the ID.
-2. The record file `.vicrocode/deploy.json` — it already stores `project_id` from the first
+2. `--project-name <project directory name>` — the user names the project instead of the ID.
+   The script first asks the platform whether that name already belongs to the account
+   (`preflight` answers `target_action: update` plus the matched `project_id`) and then acts on it:
+   - matched → prints `[匹配到老项目] <name> → #<id>` and updates it, saving the ID in the record file;
+   - not matched → it **stops with an error** instead of quietly creating a duplicate, and tells the
+     user to check the name in `/project-manage`, pass `--id`, or add `--create` when a brand-new
+     project is really wanted.
+   The name is the platform's **project directory name** (`^[a-zA-Z0-9_-]+$`, e.g. `my-tool`), not the
+   Chinese title; read it from `/project-manage`, or from `.vicrocode/deploy.json` after the first upload.
+   `--project-name` also works with `run` / `status` / `stop` / `metadata`, so those commands can target
+   a project by name without uploading anything.
+3. The record file `.vicrocode/deploy.json` — it already stores `project_id` from the first
    successful upload, so plain `deploy` / `sync` keeps updating the same app.
-3. `directory_name` — used only when there is no ID and no record; if that name is free, a new
-   project is created.
+4. `directory_name` in the manifest — used only when there is no ID, no name and no record; if that
+   name is free, a new project is created.
 
-When neither a record nor an ID exists and the user wants an existing project updated, ask for
-the project ID before uploading.
+When neither a record, an ID nor a name exists and the user wants an existing project updated, ask
+for the project ID (or the project directory name) before uploading.
 
 ```bash
 # upgrade app #1234 with the current folder contents
 python scripts/vicrocode_deploy.py sync --dir . --id 1234 --summary "修复手机端布局" --files index.html,style.css
+
+# upgrade the project named my-tool (matched by name, never creates a duplicate)
+python scripts/vicrocode_deploy.py sync --dir . --project-name my-tool --summary "修复手机端布局" --files index.html
 
 # same, upload only (no local change entry)
 python scripts/vicrocode_deploy.py deploy --dir . --id 1234

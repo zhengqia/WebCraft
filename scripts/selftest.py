@@ -108,6 +108,8 @@ def check_scripts() -> None:
     help_text = f"{completed.stdout or ''}{completed.stderr or ''}"
     missing = [name for name in REQUIRED_SUBCOMMANDS if name not in help_text]
     check("部署脚本子命令齐全", not missing, "、".join(missing))
+    check("支持按项目 ID 升级", "--id" in help_text)
+    check("支持按项目名升级", "--project-name" in help_text)
 
 
 def check_secrets() -> None:

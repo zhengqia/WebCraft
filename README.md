@@ -33,6 +33,8 @@ WebCraft v110 让上传「全自动填表」：上传项目时**项目名、描�
 
 WebCraft v111 校正分工与发布策略：明确「项目名 / 描述 / TDK / 标签 / 截图」由**智能体自己生成**（读页面、写文案、自己截图），脚本只负责检查缺项并上传，`--auto-metadata` / `--auto-screenshot` 仅作应急兜底；上传前用 `preflight --dry-run` 自查，缺什么会明确列出 `[待生成]` 项。发布策略也写清楚了：**新项目默认保存为草稿**（不公开），**更新已有项目保持原有状态**（草稿在更新文件时被平台自动升为私域，脚本会把这条提示转达给用户），只有用户明确要求提交到公域 / 鬼斧神工市场时，才设置 `--publish-status approved`。
 
+WebCraft v112 支持「按项目名更新」：除了 `--id 1234`，现在也可以 `--project-name my-tool` 用项目目录名定位老项目更新。脚本会先向平台确认这个名字是否属于当前账号：匹配到就明确提示「匹配到老项目 my-tool → #777，本次为更新」并把项目 ID 记进本地记录；**匹配不到就直接报错停下（不会悄悄新建重复项目）**，并提示你去 `/project-manage` 核对目录名、改用 `--id`，或确实要新建时加 `--create`。`--project-name` 对 `run` / `status` / `stop` / `metadata` 同样有效。
+
 
 ## About SKILL
 Develop and upload to VicroCode in one sentence — no more stressing over tech stack decisions and endless costs.
@@ -66,6 +68,8 @@ WebCraft v109 turns the skill into a platform capability front door: it adds `re
 WebCraft v110 makes upload self-filling: the project name, description, TDK and tags are generated automatically (manifest value first, then the page `<title>` / meta tags / visible text, then a local fallback, with the platform field limits), and three screenshots (desktop 1440x900, tablet 1024x768, mobile 390x844) are captured with the local Chrome or Edge through a temporary local HTTP server, cached in `.vicrocode/screenshots/` and reused while the source is unchanged. You can still take over with `--screenshots a.png,b.png`, `--no-screenshot` or `--browser <path>`, and the `screenshot` subcommand captures a live URL on demand. A new `scripts/selftest.py` runs the release self-check (package shape, version consistency, script syntax, token scan, metadata and screenshot pipeline) in one command.
 
 WebCraft v111 clarifies the division of labour and the publishing rules: the project name, description, TDK, tags and screenshots are explicitly **the agent's own deliverable** (read the page, write the copy, capture the images), while the script only reports what is missing and uploads — `--auto-metadata` / `--auto-screenshot` are emergency fallbacks, and `preflight --dry-run` prints a `[待生成]` checklist. Publishing follows the platform default: a new project is saved as a draft, updating an existing project keeps its current status (a draft that receives file updates is auto-promoted to private, and that warning is passed on to the user), and `--publish-status approved` is only used when the user explicitly asks to publish to the public area or the marketplace.
+
+WebCraft v112 adds upgrade-by-project-name: besides `--id 1234`, you can now run `--project-name my-tool` to target an existing app by its project directory name. The script first asks the platform whether that name belongs to the account — a match prints `[匹配到老项目] my-tool → #777` and stores the ID in the local record, while a miss **stops with an error instead of quietly creating a duplicate** and points the user to `/project-manage`, `--id`, or `--create` when a new project really is wanted. `--project-name` also works with `run` / `status` / `stop` / `metadata`.
 
 
 ## 安装方法
