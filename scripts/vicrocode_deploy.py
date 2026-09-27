@@ -22,9 +22,16 @@ Usage::
     python scripts/vicrocode_deploy.py deploy   --dir . --id 1234   # 只升级 #1234
     python scripts/vicrocode_deploy.py sync     --dir . --summary "改了什么" --files a.html,b.js
     python scripts/vicrocode_deploy.py log      --dir . --summary "只记一笔开发记录"
+    python scripts/vicrocode_deploy.py screenshot --dir .    # auto screenshots
     python scripts/vicrocode_deploy.py run      --dir .      # start Python deploy
     python scripts/vicrocode_deploy.py status   --dir .      # deploy status
     python scripts/vicrocode_deploy.py stop     --dir .      # stop the app
+
+Upload is self-filling: the project name, description, TDK and tags are generated
+from the page (`<title>` / meta / visible text) when the manifest does not provide
+them, and three screenshots (desktop / tablet / mobile) are captured automatically
+with a local Chrome or Edge. Use ``--screenshots a.png,b.png`` to supply your own
+images, ``--no-screenshot`` to skip, or ``--browser <path>`` to point at a browser.
 
 Every develop/upload action is also appended to the project-local dev log
 (``<project>/.vicrocode/dev-log.md`` and ``.vicrocode/dev-log.jsonl``), which is
@@ -40,13 +47,19 @@ Exit codes::
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
+import html
+import http.server
 import json
 import mimetypes
 import os
 import re
+import shutil
 import socket
+import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -61,6 +74,42 @@ MANIFEST_FILENAME = "vicrocode.project.json"
 DEVLOG_FILE = "dev-log.md"
 DEVLOG_JSONL = "dev-log.jsonl"
 DEVLOG_MAX_FILES = 40
+
+# Automatic metadata (mirrors backend/api/services/project_intake_service.derive_metadata limits)
+META_TITLE_LIMIT = 100
+META_DESCRIPTION_LIMIT = 300
+META_KEYWORDS_LIMIT = 200
+META_TAG_LIMIT = 5
+META_FALLBACK_TAG = "在线工具"
+META_TEXT_SCAN_LIMIT = 1500
+HTML_ENTRY_CANDIDATES = ("index.html", "index.htm", "main.html", "home.html", "app.html")
+
+# Automatic screenshots
+SCREENSHOT_DIR = "screenshots"
+SCREENSHOT_VIEWPORTS = (
+    ("desktop", 1440, 900),
+    ("tablet", 1024, 768),
+    ("mobile", 390, 844),
+)
+MAX_SCREENSHOTS = 5
+MIN_SCREENSHOT_BYTES = 2048
+SCREENSHOT_TIMEOUT_SECONDS = 90
+BROWSER_ENV_VARS = ("VICROCODE_BROWSER", "CHROME_PATH", "CHROMIUM_PATH", "EDGE_PATH")
+BROWSER_CANDIDATES = (
+    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/microsoft-edge",
+    "/snap/bin/chromium",
+)
 
 SITE_BASES = {
     "cn": "https://www.vicoco.cn",
@@ -280,6 +329,431 @@ def parse_project_id(raw: object) -> int:
         raise SystemExit(die(f"--id 必须是数字项目 ID，收到的是：{raw}"))
     value = int(text)
     return value if value > 0 else 0
+
+
+# ---------------------------------------------------------------------------
+# automatic project metadata (name / description / TDK / tags)
+# ---------------------------------------------------------------------------
+
+_HTML_DROP_RE = re.compile(r"(?is)<(script|style|noscript|template)\b[^>]*>.*?</\1>")
+_HTML_TAG_RE = re.compile(r"(?s)<[^>]+>")
+_HTML_META_RE = re.compile(r"(?is)<meta\b[^>]*>")
+_HTML_ATTR_RE = re.compile(
+    r"""(?is)([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))"""
+)
+_HTML_TITLE_RE = re.compile(r"(?is)<title[^>]*>(.*?)</title>")
+_HTML_H1_RE = re.compile(r"(?is)<h1[^>]*>(.*?)</h1>")
+_HTML_BODY_RE = re.compile(r"(?is)<body\b[^>]*>(.*?)</body>")
+_HTML_BLOCK_BREAK_RE = re.compile(
+    r"(?is)</(?:p|div|section|article|header|footer|li|ul|ol|h[1-6]|tr|td|th|table|main|nav|aside|figure)>|<br\s*/?>"
+)
+_WHITESPACE_RE = re.compile(r"\s+")
+_INLINE_SPACE_RE = re.compile(r"[ \t\r\f\v\u00a0]+")
+_BLANK_LINE_RE = re.compile(r"\n\s*\n+")
+_SENTENCE_RE = re.compile(r"[。！？!?\n\r]+")
+_PHRASE_RE = re.compile(
+    r"""[\s,，、。.!！?？:：;；|/\\\-—_+=*&%$#@~`()（）\[\]【】<>《》"'\u201c\u201d\u2018\u2019]+"""
+)
+_HAS_WORD_RE = re.compile(r"[\u4e00-\u9fffA-Za-z]")
+
+_KEYWORD_STOPWORDS = {
+    "我们", "你们", "他们", "以及", "可以", "一个", "这个", "那个", "如果", "因为",
+    "所以", "但是", "而且", "或者", "这里", "那里", "已经", "没有", "什么", "怎么",
+    "如何", "进行", "通过", "需要", "点击", "查看", "更多", "详情", "欢迎",
+    "支持", "提供", "使用", "包含", "显示", "选择", "下载", "上传", "生成",
+    "the", "and", "for", "with", "that", "this", "you", "your", "are", "not", "can",
+    "will", "from", "have", "has", "was", "were", "but", "all", "any", "our", "out",
+    "get", "use", "more", "about", "click", "here", "http", "https", "www", "com",
+    "div", "span", "class", "style", "script", "html", "body",
+}
+
+
+def _clean_meta_text(value: object, limit: int) -> str:
+    if value is None:
+        return ""
+    text = str(value).replace("\u3000", " ")
+    text = _WHITESPACE_RE.sub(" ", text).strip()
+    if len(text) > limit:
+        text = text[:limit].rstrip()
+    return text
+
+
+def _clean_multiline_text(value: object, limit: int) -> str:
+    """保留段落换行（用于切句），但折叠行内多余空白。"""
+    if value is None:
+        return ""
+    text = str(value).replace("\u3000", " ")
+    text = _INLINE_SPACE_RE.sub(" ", text)
+    text = _BLANK_LINE_RE.sub("\n", text)
+    text = text.strip()
+    if len(text) > limit:
+        text = text[:limit]
+    return text
+
+
+def _phrase_score(value: str) -> int:
+    """短语作为关键词的可读性打分：短而具体加分，像句子/残句减分。"""
+    score = 0
+    length = len(value)
+    if 2 <= length <= 4:
+        score += 2
+    elif length <= 6:
+        score += 1
+    elif length > 8:
+        score -= 2
+    if value[:1] in ("把", "被", "在", "和", "的", "与", "及", "或", "对", "为", "用", "从", "给", "让"):
+        score -= 1
+    if value[-1:] in ("的", "了", "着", "过", "吗", "呢", "吧", "啊", "呀"):
+        score -= 2
+    if re.search(r"[，,。.；;]", value):
+        score -= 2
+    return score
+
+
+def _normalize_tags(value: object) -> list[str]:
+    if isinstance(value, (list, tuple)):
+        raw_items = [str(item) for item in value]
+    elif isinstance(value, str):
+        raw_items = re.split(r"[,，、;；\s]+", value)
+    else:
+        raw_items = []
+    items: list[str] = []
+    for item in raw_items:
+        text = _clean_meta_text(item, 24)
+        if text and text not in items:
+            items.append(text)
+    return items[:META_TAG_LIMIT]
+
+
+def read_entry_html(project_dir: Path, manifest: dict | None = None) -> tuple[Path | None, str]:
+    """定位项目入口 HTML（优先 manifest.pageindex，其次常见首页名）。"""
+    candidates: list[str] = []
+    if isinstance(manifest, dict):
+        declared = normalize_rel_path(manifest.get("pageindex") or manifest.get("home_page_file") or "")
+        if declared:
+            candidates.append(declared)
+    candidates.extend(HTML_ENTRY_CANDIDATES)
+    for relative in candidates:
+        path = project_dir / relative
+        if path.is_file():
+            try:
+                return path, path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+    try:
+        for entry in sorted(project_dir.iterdir()):
+            if entry.is_file() and entry.suffix.lower() in {".html", ".htm"}:
+                return entry, entry.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        pass
+    return None, ""
+
+
+def _meta_attr(attributes: str, *names: str) -> str:
+    values: dict[str, str] = {}
+    for match in _HTML_ATTR_RE.finditer(attributes):
+        key = match.group(1).lower()
+        value = match.group(2) or match.group(3) or match.group(4) or ""
+        values.setdefault(key, value)
+    for name in names:
+        value = values.get(name.lower(), "")
+        if value:
+            return html.unescape(value).strip()
+    return ""
+
+
+def extract_page_meta(raw_html: str) -> dict:
+    """从入口 HTML 抽出 title / description / keywords / h1 / 可见文本。"""
+    meta = {"title": "", "description": "", "keywords": "", "h1": "", "text": ""}
+    if not raw_html:
+        return meta
+    title_match = _HTML_TITLE_RE.search(raw_html)
+    if title_match:
+        meta["title"] = _clean_meta_text(html.unescape(_HTML_TAG_RE.sub(" ", title_match.group(1))), META_TITLE_LIMIT)
+    h1_match = _HTML_H1_RE.search(raw_html)
+    if h1_match:
+        meta["h1"] = _clean_meta_text(html.unescape(_HTML_TAG_RE.sub(" ", h1_match.group(1))), META_TITLE_LIMIT)
+    for tag in _HTML_META_RE.finditer(raw_html):
+        attributes = tag.group(0)
+        name = _meta_attr(attributes, "name", "property", "itemprop").lower()
+        if name in {"description", "og:description"} and not meta["description"]:
+            meta["description"] = _clean_meta_text(_meta_attr(attributes, "content"), META_DESCRIPTION_LIMIT)
+        elif name == "keywords" and not meta["keywords"]:
+            meta["keywords"] = _clean_meta_text(_meta_attr(attributes, "content"), META_KEYWORDS_LIMIT)
+    body_match = _HTML_BODY_RE.search(raw_html)
+    body_html = body_match.group(1) if body_match else raw_html
+    text = _HTML_DROP_RE.sub(" ", body_html)
+    text = _HTML_BLOCK_BREAK_RE.sub("\n", text)
+    text = _HTML_TAG_RE.sub(" ", text)
+    meta["text"] = _clean_multiline_text(html.unescape(text), META_TEXT_SCAN_LIMIT)
+    return meta
+
+
+def extract_keywords(*texts: str, limit: int = 12) -> list[str]:
+    """按来源权重 + 可读性打分挑选中英关键词候选（纯标准库）。"""
+    counts: dict[str, int] = {}
+    order: list[str] = []
+    for index, raw_text in enumerate(texts):
+        weight = max(1, 6 - index)
+        for phrase in _PHRASE_RE.split(str(raw_text or "")):
+            value = phrase.strip()
+            if len(value) < 2 or len(value) > 8:
+                continue
+            if value.isdigit() or not _HAS_WORD_RE.search(value):
+                continue
+            if value.lower() in _KEYWORD_STOPWORDS:
+                continue
+            if value not in counts:
+                counts[value] = 0
+                order.append(value)
+            counts[value] += weight
+    ranked = sorted(
+        counts.items(),
+        key=lambda item: (-item[1], -_phrase_score(item[0]), len(item[0]), order.index(item[0])),
+    )
+    return [item[0] for item in ranked[:limit]]
+
+
+def _pick_tags(candidates: list[str], limit: int = META_TAG_LIMIT) -> list[str]:
+    tags: list[str] = []
+    for item in candidates:
+        value = item.strip()
+        if not value:
+            continue
+        if any(value == existing or value in existing or existing in value for existing in tags):
+            continue
+        tags.append(value)
+        if len(tags) >= limit:
+            break
+    return tags
+
+
+def _compose_description(title: str, page: dict) -> str:
+    head = str(page.get("h1") or "").strip() or title
+    sentences = [item.strip() for item in _SENTENCE_RE.split(str(page.get("text") or "")) if item.strip()]
+    lead = ""
+    for sentence in sentences:
+        if sentence in {head, title}:
+            continue
+        if head and sentence.startswith(head):
+            sentence = sentence[len(head):].strip(" ：:，,-、")
+        if sentence and sentence not in {head, title}:
+            lead = sentence
+            break
+    if lead and lead != head:
+        text = f"{head}：{lead}" if len(head) <= 30 else lead
+    else:
+        text = head or lead
+    if not text:
+        text = f"{title}：打开即可在线使用"
+    return _clean_meta_text(text, META_DESCRIPTION_LIMIT)
+
+
+def derive_project_metadata(project_dir: Path, manifest: dict | None = None) -> dict:
+    """自动生成项目名 / 描述 / TDK / 标签。
+
+    优先级与平台一致：manifest 显式填写 → 页面 meta → 本地推导兜底。
+    返回的 6 个字段可直接写回 manifest 后上传。
+    """
+    manifest = manifest if isinstance(manifest, dict) else {}
+    _entry_path, raw_html = read_entry_html(project_dir, manifest)
+    page = extract_page_meta(raw_html)
+    directory_name = normalize_rel_path(manifest.get("directory_name") or "") or project_dir.name
+
+    title = (
+        _clean_meta_text(manifest.get("title"), META_TITLE_LIMIT)
+        or _clean_meta_text(page.get("title"), META_TITLE_LIMIT)
+        or _clean_meta_text(page.get("h1"), META_TITLE_LIMIT)
+        or directory_name
+    )
+    description = (
+        _clean_meta_text(manifest.get("description"), META_DESCRIPTION_LIMIT)
+        or _clean_meta_text(page.get("description"), META_DESCRIPTION_LIMIT)
+        or _compose_description(title, page)
+    )
+
+    candidates = extract_keywords(
+        manifest.get("seo_keywords") or "",
+        page.get("keywords") or "",
+        page.get("h1") or "",
+        title,
+        description,
+        page.get("text") or "",
+        limit=16,
+    )
+    tags = _normalize_tags(manifest.get("tags")) or _pick_tags(candidates)
+    if not tags:
+        tags = [META_FALLBACK_TAG]
+
+    seo_title = _clean_meta_text(manifest.get("seo_title"), META_TITLE_LIMIT) or title
+    seo_description = _clean_meta_text(manifest.get("seo_description"), META_DESCRIPTION_LIMIT) or description
+    keyword_items = tags + [item for item in candidates if item not in tags]
+    seo_keywords = _clean_meta_text(manifest.get("seo_keywords"), META_KEYWORDS_LIMIT) or _clean_meta_text(
+        ",".join(keyword_items[:10]),
+        META_KEYWORDS_LIMIT,
+    )
+    return {
+        "title": title,
+        "description": description,
+        "tags": tags,
+        "seo_title": seo_title,
+        "seo_description": seo_description,
+        "seo_keywords": seo_keywords,
+    }
+
+
+# ---------------------------------------------------------------------------
+# automatic screenshots
+# ---------------------------------------------------------------------------
+
+def find_browser(explicit: str = "") -> str:
+    """定位可用的 Chromium 内核浏览器（Chrome / Edge / Chromium）。"""
+    candidates = [explicit]
+    candidates.extend(os.environ.get(name, "") for name in BROWSER_ENV_VARS)
+    candidates.extend(BROWSER_CANDIDATES)
+    for candidate in candidates:
+        value = str(candidate or "").strip().strip('"')
+        if value and Path(value).is_file():
+            return value
+    for name in ("msedge", "google-chrome", "google-chrome-stable", "chrome", "chromium", "chromium-browser", "microsoft-edge"):
+        found = shutil.which(name)
+        if found:
+            return found
+    return ""
+
+
+def _serve_directory(directory: Path):
+    """临时静态服务器：让截图走 http://127.0.0.1，行为更接近真实同源环境。"""
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(directory))
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server
+
+
+def _capture_one(browser: str, url: str, target: Path, width: int, height: int) -> tuple[bool, str]:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        try:
+            target.unlink()
+        except OSError:
+            pass
+    tail_args = [
+        "--disable-gpu",
+        "--hide-scrollbars",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-extensions",
+        "--mute-audio",
+        "--force-device-scale-factor=1",
+        f"--window-size={width},{height}",
+        "--virtual-time-budget=8000",
+        f"--screenshot={target}",
+        url,
+    ]
+    errors: list[str] = []
+    for headless_flag in ("--headless=new", "--headless"):
+        args = [browser, headless_flag] + tail_args
+        try:
+            completed = subprocess.run(
+                args,
+                capture_output=True,
+                timeout=SCREENSHOT_TIMEOUT_SECONDS,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            errors.append(str(exc))
+            continue
+        if target.is_file() and target.stat().st_size >= MIN_SCREENSHOT_BYTES:
+            return True, ""
+        detail = (completed.stderr or b"").decode("utf-8", errors="replace").strip()
+        errors.append(detail[:200] or f"退出码 {completed.returncode}")
+    return False, "；".join(item for item in errors if item)[:300]
+
+
+def _reusable_screenshots(target_dir: Path, project_dir: Path) -> list[Path]:
+    """截图比源码新时直接复用，避免每次上传都重截一遍。"""
+    shots = [target_dir / f"{name}.png" for name, _width, _height in SCREENSHOT_VIEWPORTS]
+    for path in shots:
+        if not path.is_file() or path.stat().st_size < MIN_SCREENSHOT_BYTES:
+            return []
+    oldest_shot = min(path.stat().st_mtime for path in shots)
+    source_suffixes = {".html", ".htm", ".css", ".js", ".jsx", ".ts", ".tsx", ".json"}
+    newest_source = 0.0
+    for current, dirs, names in os.walk(project_dir):
+        dirs[:] = [name for name in dirs if name.lower() not in IGNORED_DIR_PARTS]
+        for name in names:
+            if Path(name).suffix.lower() not in source_suffixes:
+                continue
+            try:
+                newest_source = max(newest_source, (Path(current) / name).stat().st_mtime)
+            except OSError:
+                continue
+    if newest_source and newest_source > oldest_shot:
+        return []
+    return shots
+
+
+def generate_screenshots(
+    project_dir: Path,
+    manifest: dict | None = None,
+    *,
+    url: str = "",
+    browser: str = "",
+    out_dir: Path | None = None,
+    force: bool = False,
+) -> tuple[list[Path], str]:
+    """自动生成 3 张不同尺寸的截图（桌面 / 平板 / 手机）。
+
+    返回 (截图列表, 说明文本)。失败不抛异常，调用方决定是否继续上传。
+    """
+    target_dir = out_dir or (project_dir / RECORD_DIR / SCREENSHOT_DIR)
+    if not url and out_dir is None and not force:
+        fresh = _reusable_screenshots(target_dir, project_dir)
+        if fresh:
+            return fresh, (
+                f"复用已有 {len(fresh)} 张截图（源码未更新；如需重截请加 --force 或删除 "
+                f"{RECORD_DIR}/{SCREENSHOT_DIR}/）"
+            )
+    browser_path = find_browser(browser)
+    if not browser_path:
+        return [], (
+            "未找到 Chrome / Edge 浏览器，已跳过自动截图"
+            "（可用 --browser 指定浏览器路径，或用 --screenshots 自己提供图片）"
+        )
+
+    server = None
+    try:
+        if url:
+            target_url = url
+        else:
+            entry_path, _raw_html = read_entry_html(project_dir, manifest or {})
+            root = entry_path.parent if entry_path is not None else project_dir
+            server = _serve_directory(root)
+            port = server.server_address[1]
+            relative = entry_path.name if entry_path is not None else ""
+            target_url = f"http://127.0.0.1:{port}/{relative}"
+        shots: list[Path] = []
+        failures: list[str] = []
+        for name, width, height in SCREENSHOT_VIEWPORTS:
+            target = target_dir / f"{name}.png"
+            ok, reason = _capture_one(browser_path, target_url, target, width, height)
+            if ok:
+                shots.append(target)
+            else:
+                failures.append(f"{name}: {reason or '截图失败'}")
+        if not shots:
+            return [], "自动截图失败：" + "；".join(failures)[:300]
+        note = f"已自动生成 {len(shots)} 张截图（{target_url}）"
+        if failures:
+            note += "；部分尺寸失败：" + "；".join(failures)[:200]
+        return shots, note
+    finally:
+        if server is not None:
+            try:
+                server.shutdown()
+                server.server_close()
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -582,8 +1056,13 @@ def command_preflight(args) -> int:
         return die(f"目录不存在：{project_dir}")
 
     manifest = build_manifest(args, project_dir, record)
+    auto_metadata = derive_project_metadata(project_dir, manifest)
+    for key, value in auto_metadata.items():
+        if not manifest.get(key):
+            manifest[key] = value
     files, skipped = collect_files(project_dir, args.only)
     problems = check_sizes(files)
+    browser_path = find_browser(str(getattr(args, "browser", "") or ""))
 
     if args.dry_run or not token:
         payload = {
@@ -595,10 +1074,24 @@ def command_preflight(args) -> int:
                 "skipped": skipped,
                 "problems": problems,
                 "manifest": manifest,
+                "auto_metadata": auto_metadata,
+                "screenshots": {
+                    "browser": browser_path,
+                    "viewports": [f"{name} {width}x{height}" for name, width, height in SCREENSHOT_VIEWPORTS],
+                },
             },
         }
         if not token:
             info("未检测到令牌，已执行本地预检（配置令牌后可做平台预检）。")
+        if not args.json:
+            info(f"自动生成项目名：{manifest.get('title', '')}")
+            info(f"自动生成描述：{manifest.get('description', '')}")
+            info(f"自动生成标签：{'、'.join(manifest.get('tags') or [])}")
+            info(f"自动生成 TDK：{manifest.get('seo_title', '')} / {manifest.get('seo_description', '')}")
+            if browser_path:
+                info("自动截图可用：桌面 1440x900、平板 1024x768、手机 390x844")
+            else:
+                info("[提示] 未找到 Chrome / Edge，自动截图会被跳过（可用 --browser 指定浏览器路径）。")
         return _print_payload(payload, args.json, problems)
 
     body_files: list[tuple[str, str, bytes]] = []
@@ -715,6 +1208,32 @@ def _start_project(token: str, base_url: str, project_id: int) -> tuple[int, dic
     )
 
 
+def _resolve_screenshots(args, project_dir: Path, manifest: dict) -> tuple[list[Path], str]:
+    """决定本次上传用哪些截图：显式指定 > 自动生成 > 明确跳过。"""
+    if getattr(args, "no_screenshot", False):
+        return [], "已按 --no-screenshot 跳过自动截图"
+    explicit = split_list(getattr(args, "screenshots", ""))
+    if explicit:
+        shots: list[Path] = []
+        missing: list[str] = []
+        for relative in explicit:
+            path = project_dir / relative
+            if path.is_file():
+                shots.append(path)
+            else:
+                missing.append(relative)
+        note = f"使用指定的 {len(shots)} 张截图"
+        if missing:
+            note += "；未找到：" + "、".join(missing)
+        return shots[:MAX_SCREENSHOTS], note
+    return generate_screenshots(
+        project_dir,
+        manifest,
+        browser=str(getattr(args, "browser", "") or ""),
+        force=bool(getattr(args, "force", False)),
+    )
+
+
 def command_deploy(args) -> int:
     token, base_url, record = resolve_config(args)
     project_dir = Path(args.dir).expanduser().resolve()
@@ -730,6 +1249,19 @@ def command_deploy(args) -> int:
     explicit_id = parse_project_id(getattr(args, "project_id", ""))
     if explicit_id:
         info(f"[升级模式] 目标项目 #{explicit_id}：只更新文件，不会新建项目。")
+
+    # 项目名 / 描述 / TDK / 标签：只补 manifest 没写的字段（页面 meta → 正文推导兜底）
+    auto_metadata = derive_project_metadata(project_dir, manifest)
+    generated_fields = [key for key, value in auto_metadata.items() if not manifest.get(key)]
+    for key, value in auto_metadata.items():
+        if not manifest.get(key):
+            manifest[key] = value
+    if generated_fields:
+        info("[自动生成] 已补全：" + "、".join(generated_fields))
+        info(f"  项目名：{manifest.get('title', '')}")
+        info(f"  描述：{manifest.get('description', '')}")
+        info(f"  标签：{'、'.join(manifest.get('tags') or [])}")
+
     files, skipped = collect_files(project_dir, args.only)
     if not files:
         return die("没有可上传的文件（检查 --only 或目录是否为空）")
@@ -747,11 +1279,17 @@ def command_deploy(args) -> int:
         )
         return die("存在体积超限的文件，请精简后重试（或用 --force 跳过本地检查）", 1)
 
+    # 截图：默认自动生成（桌面 / 平板 / 手机），也可用 --screenshots 指定或 --no-screenshot 关闭
+    screenshot_paths, screenshot_note = _resolve_screenshots(args, project_dir, manifest)
+    if screenshot_note:
+        info(f"[截图] {screenshot_note}")
+
     digest = package_hash(files)
     if (
         not args.force
         and record.get("project_id")
         and record.get("last_package_hash") == digest
+        and int(record.get("screenshot_count") or 0) == len(screenshot_paths)
     ):
         info("内容与上次上传完全一致，已跳过上传（如需强制重传请加 --force）。")
         if record.get("run_url"):
@@ -776,6 +1314,11 @@ def command_deploy(args) -> int:
             return die(f"读取文件失败：{relative} ({exc})")
         body_files.append((f"online_files[{index}]", ascii_filename(Path(relative).name, index), content))
         paths[str(index)] = relative
+    for index, shot in enumerate(screenshot_paths[:MAX_SCREENSHOTS]):
+        try:
+            body_files.append((f"screenshot_files[{index}]", shot.name, shot.read_bytes()))
+        except OSError as exc:
+            info(f"[提示] 截图读取失败：{shot}（{exc}）")
 
     fields = [
         ("manifest", json.dumps(manifest, ensure_ascii=False)),
@@ -796,7 +1339,8 @@ def command_deploy(args) -> int:
         stopped_for_upload = _stop_project(token, base_url, target_id)
 
     def _upload_once() -> tuple[int, dict]:
-        info(f"正在上传 {len(files)} 个文件到 {base_url} …")
+        shot_hint = f"，{len(screenshot_paths)} 张截图" if screenshot_paths else ""
+        info(f"正在上传 {len(files)} 个文件{shot_hint}到 {base_url} …")
         # 幂等键必须每次请求都唯一：平台会缓存同键请求的响应，
         # 若按键推导（例如含内容哈希），重复上传同一份内容会被当成重复请求，
         # 结果「返回成功但不写文件」。内容未变化的去重由上面的 last_package_hash 在本地完成。
@@ -855,6 +1399,7 @@ def command_deploy(args) -> int:
         "last_upload_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "last_package_hash": digest,
         "file_count": len(files),
+        "screenshot_count": len(screenshot_paths),
     })
     if manifest.get("python", {}).get("auto_deploy") if isinstance(manifest.get("python"), dict) else False:
         record["auto_deploy"] = True
@@ -1134,6 +1679,55 @@ def command_metadata(args) -> int:
     return 0
 
 
+def command_screenshot(args) -> int:
+    """为本地项目（或已上线网址）自动生成截图。"""
+    project_dir = Path(args.dir).expanduser().resolve()
+    if not project_dir.is_dir():
+        return die(f"目录不存在：{project_dir}")
+    record = load_record(project_dir)
+    manifest = build_manifest(args, project_dir, record)
+    out_dir = str(getattr(args, "out", "") or "").strip()
+    out_path: Path | None = None
+    if out_dir:
+        out_path = Path(out_dir).expanduser()
+        if not out_path.is_absolute():
+            out_path = project_dir / out_path
+    target_url = str(getattr(args, "url", "") or "").strip()
+    shots, note = generate_screenshots(
+        project_dir,
+        manifest,
+        url=target_url,
+        browser=str(getattr(args, "browser", "") or ""),
+        out_dir=out_path,
+        force=bool(getattr(args, "force", False)),
+    )
+    if note:
+        info(note)
+    for path in shots:
+        info(f"  {path}")
+    if args.json:
+        print(json.dumps(
+            {
+                "status": "ok" if shots else "error",
+                "screenshots": [str(path) for path in shots],
+                "note": note,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ))
+    if not shots:
+        return 1
+    append_dev_log(
+        project_dir,
+        action="screenshot",
+        summary=f"生成 {len(shots)} 张截图",
+        project_id=int(record.get("project_id") or 0),
+        run_url=target_url or str(record.get("run_url") or ""),
+        result="ok",
+    )
+    return 0
+
+
 def command_log(args) -> int:
     """只往项目目录写一条开发记录（不联网、不上传）。"""
     project_dir = Path(args.dir).expanduser().resolve()
@@ -1221,6 +1815,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_common(p, with_manifest=True)
     p.add_argument("--dry-run", action="store_true", help="只做本地检查，不请求平台")
     p.add_argument("--with-files", action="store_true", help="连文件一起预检（能读到页面标题）")
+    p.add_argument("--browser", default="", help="用于自动截图的 Chrome / Edge 可执行文件路径")
     p.set_defaults(func=command_preflight)
 
     def add_deploy_flags(target):
@@ -1229,6 +1824,9 @@ def build_parser() -> argparse.ArgumentParser:
         target.add_argument("--no-wait", action="store_true", help="自动重新部署后不等待结果")
         target.add_argument("--interval", type=float, default=5.0, help="轮询间隔秒")
         target.add_argument("--wait-seconds", type=float, default=180.0, help="自动重新部署最长等待秒")
+        target.add_argument("--no-screenshot", action="store_true", help="不自动生成截图")
+        target.add_argument("--screenshots", default="", help="自己提供的截图，逗号分隔（相对项目根）")
+        target.add_argument("--browser", default="", help="用于自动截图的 Chrome / Edge 可执行文件路径")
 
     p = sub.add_parser("deploy", help="上传或更新项目（有记录或 --id 时只更新，不新建）")
     add_common(p, with_manifest=True)
@@ -1241,6 +1839,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--summary", default="", help="这次改了什么（写入项目目录的开发记录）")
     p.add_argument("--files", default="", help="本次涉及的文件，逗号分隔（写入记录）")
     p.set_defaults(func=command_sync)
+
+    p = sub.add_parser("screenshot", help="为项目（或线上网址）自动生成截图")
+    add_common(p, with_token=False)
+    p.add_argument("--url", default="", help="要截图的网址；默认截本地项目")
+    p.add_argument("--browser", default="", help="Chrome / Edge 可执行文件路径")
+    p.add_argument("--out", default="", help="截图输出目录（默认 .vicrocode/screenshots）")
+    p.add_argument("--force", action="store_true", help="强制重新截图，不复用已有图片")
+    p.set_defaults(func=command_screenshot)
 
     p = sub.add_parser("log", help="只往项目目录写一条开发记录（不联网）")
     add_common(p, with_token=False)
