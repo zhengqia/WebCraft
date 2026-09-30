@@ -21,6 +21,18 @@ Explain this concretely:
 1. Upload source or website package through `/project-upload-website`
 2. After upload, manage the project, pricing, publish state, and subsequent edits from `/project-manage`
 
+Publishing to the public area / 鬼斧神工 marketplace is **reviewed by an administrator**:
+
+1. Submitting a project for the public area or the marketplace (`--publish-status approved`, or the
+   publish control in `/project-manage`) only places it in the review queue — the platform records
+   `review_status=pending` and the project is not visible to other users yet.
+2. Tell the user: "已提交公域 / 鬼斧神工上架审核，管理员审核通过后其他用户才能看到，请等待审核结果。"
+   Report the submit step as done, but never claim the project is already published.
+3. Waiting for review is the normal path and is **not** an upload failure. If the project does not
+   show up in the marketplace immediately, or its status reads 审核中 / pending, do not re-upload,
+   do not flip the publish status back and forth, and do not change code while waiting; the user can
+   follow the review state in `/project-manage`.
+
 If the project will be cloneable and calls an authenticated API, the complete order is:
 
 1. Create each hosted API in `/credential-vault`.

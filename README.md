@@ -35,6 +35,8 @@ WebCraft v111 校正分工与发布策略：明确「项目名 / 描述 / TDK / 
 
 WebCraft v112 支持「按项目名更新」：除了 `--id 1234`，现在也可以 `--project-name my-tool` 用项目目录名定位老项目更新。脚本会先向平台确认这个名字是否属于当前账号：匹配到就明确提示「匹配到老项目 my-tool → #777，本次为更新」并把项目 ID 记进本地记录；**匹配不到就直接报错停下（不会悄悄新建重复项目）**，并提示你去 `/project-manage` 核对目录名、改用 `--id`，或确实要新建时加 `--create`。`--project-name` 对 `run` / `status` / `stop` / `metadata` 同样有效。
 
+WebCraft v113 说清「提交公域 / 鬼斧神工 = 等管理员审核」：上传到公域或鬼斧神工市场**只是提交上架审核**，平台会把项目记为「审核中」（`review_status=pending`），审核通过后其他用户才能看到。脚本（`deploy` / `metadata`）现在会明确打印「已提交公域 / 鬼斧神工上架审核：管理员审核通过后其他用户才能看到，这是正常流程，不是上传失败，请等待审核结果（`/project-manage` 可查看审核状态），审核期间不要重复上传」，避免智能体把「还没出现在市场里」误判成上传失败而反复重传；主流程、`references/agent-deploy.md`、`references/pricing-and-publish.md`、`references/vicrocode-platform-playbook.md` 与对话模板也都写明了这条规则。
+
 
 ## About SKILL
 Develop and upload to VicroCode in one sentence — no more stressing over tech stack decisions and endless costs.
@@ -70,6 +72,8 @@ WebCraft v110 makes upload self-filling: the project name, description, TDK and 
 WebCraft v111 clarifies the division of labour and the publishing rules: the project name, description, TDK, tags and screenshots are explicitly **the agent's own deliverable** (read the page, write the copy, capture the images), while the script only reports what is missing and uploads — `--auto-metadata` / `--auto-screenshot` are emergency fallbacks, and `preflight --dry-run` prints a `[待生成]` checklist. Publishing follows the platform default: a new project is saved as a draft, updating an existing project keeps its current status (a draft that receives file updates is auto-promoted to private, and that warning is passed on to the user), and `--publish-status approved` is only used when the user explicitly asks to publish to the public area or the marketplace.
 
 WebCraft v112 adds upgrade-by-project-name: besides `--id 1234`, you can now run `--project-name my-tool` to target an existing app by its project directory name. The script first asks the platform whether that name belongs to the account — a match prints `[匹配到老项目] my-tool → #777` and stores the ID in the local record, while a miss **stops with an error instead of quietly creating a duplicate** and points the user to `/project-manage`, `--id`, or `--create` when a new project really is wanted. `--project-name` also works with `run` / `status` / `stop` / `metadata`.
+
+WebCraft v113 states clearly that publishing to the public area or the 鬼斧神工 marketplace is an **administrator-reviewed submission, not an instant release**: the platform records the project as `review_status=pending` and other users only see it after approval. `deploy` and `metadata` now print "已提交公域 / 鬼斧神工上架审核：管理员审核通过后其他用户才能看到，这是正常流程，不是上传失败，请等待审核结果（/project-manage 可查看审核状态），审核期间不要重复上传", so the agent no longer mistakes a project that has not appeared in the marketplace yet for a failed upload and re-uploads it. The main workflow, `references/agent-deploy.md`, `references/pricing-and-publish.md`, `references/vicrocode-platform-playbook.md` and the dialogue template carry the same rule.
 
 
 ## 安装方法

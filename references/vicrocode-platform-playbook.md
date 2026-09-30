@@ -71,7 +71,8 @@ Collect provider, protocol family, base URL, model, capability and credential so
 2. Prefer the agent deploy path: run `python scripts/vicrocode_deploy.py sync --dir <project> --summary "<what changed>"` after every change (see `references/agent-deploy.md`). It records the change in the project directory, uploads/updates with the same server-side rules as the browser page, and returns the run URL. Pass `--id <project id>` to upgrade an existing app instead of creating a new project. Use the browser `/project-upload-website` page only when the user asks for manual control.
 3. Manage domains, visibility, locales and runtime settings in `/project-manage`.
 4. For clone-ready projects, create stable hosted API identifiers in Credential Vault, replace direct provider calls, remove `.env`/private keys, run the clone secret scan, then pass the source-rule and API-connectivity checks before clone review.
-5. Keep public links same-origin and generate canonical, hreflang, sitemap, title, description, structured data and readable fallback HTML for each published locale.
+5. Publishing to the public area / 鬼斧神工 marketplace goes through administrator review: the submission enters the review queue (`review_status=pending`) and the project appears to other users only after approval. Tell the user to wait for the review result — a project that is not listed yet is not a failed upload, so do not re-upload and do not change code while waiting.
+6. Keep public links same-origin and generate canonical, hreflang, sitemap, title, description, structured data and readable fallback HTML for each published locale.
 
 ## 7. Acceptance checklist
 

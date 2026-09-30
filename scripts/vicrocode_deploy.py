@@ -138,6 +138,32 @@ IGNORED_FILE_SUFFIXES = (".pyc", ".pyo", ".pyd", ".log")
 SECRET_FILE_SUFFIXES = (".pem", ".key", ".pfx", ".p12", ".keystore", ".jks")
 SECRET_FILE_PREFIXES = ("id_rsa", "id_dsa", "id_ecdsa", "id_ed25519")
 
+# 公域 / 鬼斧神工属于"提交上架审核"，不是即时生效；必须让智能体知道这是正常等待。
+REVIEW_SUBMITTED_NOTICE = (
+    "[发布状态] 已提交公域 / 鬼斧神工上架审核：管理员审核通过后其他用户才能看到。"
+    "这是正常流程，不是上传失败，请等待审核结果（/project-manage 可查看审核状态），"
+    "审核期间不要重复上传、也不要反复改写代码。"
+)
+DRAFT_NEXT_STEP_NOTICE = (
+    "[发布状态] 新项目默认保存为草稿（不公开）。要提交到公域 / 鬼斧神工市场，"
+    "可以让我加 --publish-status approved 再更新，或在 /project-manage 里自行发布；"
+    "提交后需要管理员审核（状态显示「审核中」），审核通过后才会在公域 / 鬼斧神工展示。"
+)
+UNCHANGED_STATUS_NOTICE = "[发布状态] 更新不会改变项目原有的公开 / 私域设置。"
+
+
+def review_was_submitted(data: dict | None, warnings: list | None = None) -> bool:
+    """判断本次请求是否把项目提交进了公域 / 鬼斧神工上架审核队列。
+
+    平台在提交后把 ``review_status`` 置为 ``pending``：审核期间项目不会立即出现在市场里，
+    这是正常流程，必须让智能体知道要等待，而不是误判成上传失败。
+    """
+    payload = data if isinstance(data, dict) else {}
+    if str(payload.get("review_status") or "").strip().lower() == "pending":
+        return True
+    items = warnings if warnings is not None else (payload.get("warnings") or [])
+    return any("审核" in str(item) for item in items or [])
+
 MAX_SINGLE_FILE_BYTES = 20 * 1024 * 1024
 MAX_TOTAL_BYTES = 90 * 1024 * 1024
 
@@ -1545,13 +1571,12 @@ def command_deploy(args) -> int:
     warnings = [str(item) for item in (data.get("warnings") or [])]
     for warning in warnings:
         info(f"[提示] {warning}")
-    if data.get("created") or str(data.get("action") or "") == "create":
-        info(
-            "[发布状态] 新项目默认保存为草稿（不公开）。要提交到公域 / 鬼斧神工市场，"
-            "可以让我加 --publish-status approved 再更新，或在 /project-manage 里自行发布。"
-        )
+    if review_was_submitted(data, warnings):
+        info(REVIEW_SUBMITTED_NOTICE)
+    elif data.get("created") or str(data.get("action") or "") == "create":
+        info(DRAFT_NEXT_STEP_NOTICE)
     elif not any(("私域" in item) or ("草稿" in item) for item in warnings):
-        info("[发布状态] 更新不会改变项目原有的公开 / 私域设置。")
+        info(UNCHANGED_STATUS_NOTICE)
     uploaded_files = [relative for relative, _ in files]
     append_dev_log(
         project_dir,
@@ -1805,6 +1830,12 @@ def command_metadata(args) -> int:
     if status >= 400 or payload.get("status") != "ok":
         return die(payload.get("message") or f"更新失败（HTTP {status}）", 1)
     info("项目信息已更新。")
+    metadata_data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    metadata_warnings = [str(item) for item in (metadata_data.get("warnings") or [])]
+    for warning in metadata_warnings:
+        info(f"[提示] {warning}")
+    if review_was_submitted(metadata_data, metadata_warnings):
+        info(REVIEW_SUBMITTED_NOTICE)
     append_dev_log(
         Path(args.dir).expanduser().resolve(),
         action="metadata",

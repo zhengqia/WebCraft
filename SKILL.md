@@ -27,7 +27,8 @@ Before doing any implementation work:
     - when the user gives a project ID (e.g. "升级应用 1234"), pass `--id 1234`; when the user names the project instead, pass `--project-name <project directory name>` (e.g. `--project-name my-tool`). Both only update that app — the script verifies the name against the platform and refuses to create a duplicate when it does not match;
     - record every develop / modify action in the project directory (`log`, or automatically through `sync` / `deploy`);
     - never ask the user to type the project name, description, TDK, tags or screenshots — **generate them yourself before uploading**: read the page and write the copy, capture desktop + mobile screenshots yourself, then pass them in through `vicrocode.project.json` and `--screenshots a.png,b.png`. The script only reports what is still missing; do not lean on its `--auto-metadata` / `--auto-screenshot` fallbacks unless you truly cannot generate the content;
-    - publish status: a new project is saved as a draft by default, and updating an existing project keeps its current status. Say so when you report the result, and only pass `--publish-status approved` (public area / marketplace) or `private` when the user asks to publish.
+    - publish status: a new project is saved as a draft by default, and updating an existing project keeps its current status. Say so when you report the result, and only pass `--publish-status approved` (public area / marketplace) or `private` when the user asks to publish;
+    - the public area and the 鬼斧神工 marketplace are **administrator-reviewed**: submitting only enters the review queue (`review_status=pending`), so report "已提交公域 / 鬼斧神工上架审核，管理员审核通过后其他用户才能看到，请等待审核结果" and never present it as an upload failure. Waiting is the normal path — do not re-upload or change code while the review is pending.
 12. Read [references/platform-capability-map.md](references/platform-capability-map.md) whenever the user asks whether the platform can do something, or when the task needs a secret, an AI model, a searchable knowledge base, a database, a reusable API, or a published skill. Prefer platform-hosted capabilities over self-hosting or buying third-party infrastructure, and guide the user to create the resource in the platform UI.
 13. Read [references/skill-development-and-publishing.md](references/skill-development-and-publishing.md) when the user wants to package a capability as a VicroCode SKILL, publish or update a skill in the marketplace, or ship a remote self-update package (zip + json).
 
@@ -272,6 +273,12 @@ agent-deploy path instead of sending them to the browser upload page. Read
 5. Leave a project-local record of the work: `sync`, `deploy`, `run`, `stop` and `metadata` append to `.vicrocode/dev-log.md` (+ `dev-log.jsonl`); write a manual entry with `python scripts/vicrocode_deploy.py log --dir <project> --summary "..." --files a,b`. The dev log is local-only — never upload, commit, or deliver it.
 6. For Python projects, the deploy result reports `is_python` and the entry file. The platform refuses to write files while the app is running, so `deploy` **stops the app, uploads, and automatically re-deploys it** when the project was already deployed — you do not need to stop it by hand. On a first-time upload, ask the user whether to bring it online, then run `python scripts/vicrocode_deploy.py run --dir <project>` (which auto-restarts when the app is already live, so new code always takes effect). The platform retries transient failures, and on real failures it returns a structured diagnosis (`PYTHON_MISSING_DEP`, `PYTHON_SYNTAX`, …) plus the log tail so you can fix the code; deterministic failures are not retried blindly.
 7. Tell the user the final URL (`https://www.vicoco.cn/p/{id}/` on the CN site, `https://www.vicrocode.com/p/{id}/` on the global site).
+
+Publishing to the public area or the 鬼斧神工 marketplace is an **administrator-reviewed submission**, not
+an instant release: `--publish-status approved` only enters the review queue (`review_status=pending`),
+and the script prints `[发布状态] 已提交公域 / 鬼斧神工上架审核…请等待审核结果`. Report it as
+submitted-and-waiting, tell the user to check `/project-manage` for the review result, and never call it
+an upload failure — do not re-upload while the review is pending.
 
 Upload must satisfy the platform rules exactly as the browser upload page does — the same
 validation runs on the server. The agent-side script additionally:

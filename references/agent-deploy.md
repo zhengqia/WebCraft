@@ -111,7 +111,7 @@ Site resolution order: `--site` → `VICROCODE_SITE` → record file → `cn`.
 - `directory_name`: `^[a-zA-Z0-9_-]+$`; invalid characters are auto-slugified. Unique per author.
 - `project_id` vs `directory_name`: give either to target an existing project; the script prefers the record file's values, so later runs update instead of re-create.
 - `dynamic_data_paths` is auto-merged from `vicrocode.project.json`'s `runtime_data`.
-- `publish_status`: new projects are saved as a `draft` by default — keep it that way unless the user asks to publish. Updating an existing project keeps its current status; **updating files on a draft auto-promotes it to `private`** (platform rule) and the script reports that warning. Use `--publish-status approved` (public area / marketplace) or `private` only when the user asks for it.
+- `publish_status`: new projects are saved as a `draft` by default — keep it that way unless the user asks to publish. Updating an existing project keeps its current status; **updating files on a draft auto-promotes it to `private`** (platform rule) and the script reports that warning. Use `--publish-status approved` (public area / marketplace) or `private` only when the user asks for it. `approved` is a **submission for administrator review** — see §11.3.
 - TDK/description/tags default to the page `<title>`/`<meta>` when the agent did not provide them.
 
 ---
@@ -263,13 +263,29 @@ Use it as your checklist before every upload, and fix the missing items instead 
 ### 11.3 Publish status (draft / private / public)
 
 - **New project** → saved as a draft; nothing is public yet. Report it as: "已保存为草稿；要提交到公域 /
-  鬼斧神工市场，可以让我加 `--publish-status approved` 更新，或在 `/project-manage` 里自行发布。"
+  鬼斧神工市场，可以让我加 `--publish-status approved` 更新，或在 `/project-manage` 里自行发布；
+  提交后需要管理员审核（审核中），审核通过后才会公开展示。"
 - **Existing project** → the upload keeps its current status. Never push a public project back to
   private, and never make a draft public on your own.
 - The platform refuses to keep a draft while files are updated: it promotes the project to `private`
   and returns a warning — pass that warning on to the user instead of hiding it.
 - Only pass `--publish-status approved` (public area / marketplace) or `private` when the user asks
   for that specific outcome.
+
+**Public area / 鬼斧神工 submission is reviewed by an administrator — waiting is normal:**
+
+- Uploading to the public area or the 鬼斧神工 marketplace **only submits the project for review**.
+  The platform sets `publish_status=approved` together with `review_status=pending` and returns the
+  warning "项目已提交上架审核，审核通过后其他用户才能看到。"; the script then prints
+  `[发布状态] 已提交公域 / 鬼斧神工上架审核…请等待审核结果`.
+- Report it exactly like that: "已提交公域 / 鬼斧神工上架审核，管理员审核通过后其他用户才能看到，
+  请等待审核结果（可在 `/project-manage` 查看审核状态）。" Never say the release is live, and never
+  say the upload failed.
+- A project that does not appear in the marketplace yet, or whose status is 审核中 / pending, is
+  **not** a failed upload. Do not re-upload it, do not switch publish status back and forth, and do
+  not rewrite code while waiting — just tell the user the review is in progress.
+- Review times are decided by administrators; if the user asks for progress, check
+  `/project-manage` (or `metadata`) instead of uploading again.
 
 ### 11.4 Screenshot tooling (optional helpers)
 
