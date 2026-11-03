@@ -98,6 +98,11 @@ Site resolution order: `--site` → `VICROCODE_SITE` → record file → `cn`.
   "seo_title": "AI 图片去水印在线工具 - 免费批量处理",
   "seo_description": "上传图片即可自动去除水印，支持 JPG/PNG。",
   "seo_keywords": "去水印,图片处理,在线工具",
+  "faq": [
+    { "question": "去水印要收费吗？", "answer": "基础的去水印与下载不收费。" },
+    { "question": "需要安装客户端吗？", "answer": "不需要，在浏览器里上传图片即可处理。" },
+    { "question": "手机上能用吗？", "answer": "可以，页面已适配移动端。" }
+  ],
   "display_options": ["online", "download"],
   "proclass": "website",
   "publish_status": "draft",
@@ -249,7 +254,11 @@ path: they exist only for the case where you genuinely cannot produce the conten
 5. **Screenshots**: at least desktop + mobile; three images (desktop `1440x900`, tablet `1024x768`,
    mobile `390x844`) are ideal. They must show the real finished UI above the fold with data loaded —
    not an empty shell, a loading state, or an error page.
-6. **Publish status**: leave it alone by default (see 11.3).
+6. **FAQ** (3 pairs, `faq` in `vicrocode.project.json`): the questions a real visitor asks before using
+   the tool — is it free, do I need to install or sign up, does it work on a phone. Answer only from
+   what the app actually does; never invent prices, quotas, or features. They render as a visible
+   "常见问题" block plus `FAQPage` structured data, which is what AI answer engines quote.
+7. **Publish status**: leave it alone by default (see 11.3).
 
 Put the text into `vicrocode.project.json` (or pass `--title` / `--description` / `--tags`), and pass
 the images with `--screenshots desktop.png,mobile.png`.
