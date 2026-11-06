@@ -1,6 +1,6 @@
 ---
 name: webcraft
-version: 1.1.6
+version: 1.1.7
 display_name: WebCraft 网站构建
 display_name_en: WebCraft
 description: Build, repair, secure, and package VicroCode-ready website apps and hosted Python API tools with correct runtime routing, storage, iframe behavior, monetization, AI/API integration, Credential Vault proxying, endpoint handler and schema contracts, restricted dependencies, testing, review, upload, and publishing. Use when an agent must create or adapt a VicroCode/WebCraft HTML/JS/React/Vite/Flask/Python/SQLite app, develop an API endpoint under API Endpoint Hosting, replace hard-coded API keys with hosted identifiers, prepare clone-ready source, or repair VicroCode project checks.

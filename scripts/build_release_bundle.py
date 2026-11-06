@@ -21,6 +21,13 @@ DEFAULT_SKILL_NAME = "webcraft"
 IGNORE_PARTS = {"__pycache__", ".git", ".idea", ".vscode"}
 IGNORE_SUFFIXES = {".pyc", ".pyo"}
 
+# A SKILL package may only contain these paths. Everything else in the repository
+# (.claude-plugin/, marketplace.json, README.md, VERSION, LICENSE, ...) is
+# repository metadata and must stay out of the zip.
+ALLOWED_ROOT_FILES = {"SKILL.md", "agents/openai.yaml"}
+ALLOWED_DIR_PREFIXES = ("scripts/", "references/", "assets/")
+ALLOWED_SUFFIXES = {".py", ".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg"}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build a clean VicroCode skill release bundle.")
@@ -39,21 +46,50 @@ def read_version(skill_dir: Path) -> str:
     return version_file.read_text(encoding="utf-8").strip()
 
 
-def should_include(path: Path) -> bool:
-    if any(part in IGNORE_PARTS for part in path.parts):
+def should_include(name: str) -> bool:
+    """Keep the package to the official SKILL layout only."""
+    parts = name.split("/")
+    if any(part in IGNORE_PARTS for part in parts):
         return False
-    if path.suffix.lower() in IGNORE_SUFFIXES:
+    if Path(name).suffix.lower() in IGNORE_SUFFIXES:
         return False
-    return True
+    if name in ALLOWED_ROOT_FILES:
+        return True
+    if not name.startswith(ALLOWED_DIR_PREFIXES):
+        return False
+    return Path(name).suffix.lower() in ALLOWED_SUFFIXES
 
 
-def write_zip(skill_dir: Path, zip_path: Path) -> None:
+def write_zip(skill_dir: Path, zip_path: Path) -> list[str]:
+    included: list[str] = []
+    skipped: list[str] = []
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for path in sorted(skill_dir.rglob("*")):
-            if path.is_dir() or not should_include(path):
+            if path.is_dir():
                 continue
-            rel = path.relative_to(skill_dir.parent)
-            zf.write(path, rel.as_posix())
+            name = path.relative_to(skill_dir).as_posix()
+            if not should_include(name):
+                skipped.append(name)
+                continue
+            zf.write(path, f"{skill_dir.name}/{name}")
+            included.append(name)
+    if "SKILL.md" not in included:
+        raise SystemExit("Refusing to build: SKILL.md is missing from the package.")
+    return skipped
+
+
+def verify_zip(zip_path: Path) -> list[str]:
+    """Re-read the archive and assert every entry matches the allowed layout."""
+    with zipfile.ZipFile(zip_path) as zf:
+        names = [item.filename for item in zf.infolist() if not item.is_dir()]
+    bad: list[str] = []
+    for full in names:
+        prefix, _, relative = full.partition("/")
+        if not relative or not should_include(relative):
+            bad.append(full)
+    if bad:
+        raise SystemExit("Refusing to release: disallowed entries in zip: " + ", ".join(bad))
+    return names
 
 
 def sha256_of_file(path: Path) -> str:
@@ -89,7 +125,8 @@ def main() -> int:
     zip_path = output_dir / f"{skill_name}.zip"
     json_path = output_dir / f"{skill_name}.json"
 
-    write_zip(skill_dir, zip_path)
+    skipped = write_zip(skill_dir, zip_path)
+    entries = verify_zip(zip_path)
     zip_sha256 = sha256_of_file(zip_path)
     size_bytes = os.path.getsize(zip_path)
     zip_url = f"{str(args.site_base).rstrip('/')}/skills/{skill_name}.zip"
@@ -109,6 +146,14 @@ def main() -> int:
     print(f"json={json_path}")
     print(f"version={version}")
     print(f"sha256={zip_sha256}")
+    print(f"files={len(entries)}")
+    for name in entries:
+        print(f"  + {name}")
+    if skipped:
+        visible = [name for name in skipped if not name.startswith(".git/")]
+        print(f"skipped={len(skipped)} (.git entries hidden)")
+        for name in visible:
+            print(f"  - {name}")
     return 0
 
 

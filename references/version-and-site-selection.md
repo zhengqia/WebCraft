@@ -9,10 +9,10 @@ This skill is expected to keep evolving.
 Current local skill version:
 
 ```text
-v116
+v117
 ```
 
-The same release in SemVer form is `1.1.6`; report that form when a platform asks for a
+The same release in SemVer form is `1.1.7`; report that form when a platform asks for a
 version number.
 
 Remote package example:

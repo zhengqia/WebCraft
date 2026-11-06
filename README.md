@@ -41,6 +41,9 @@ WebCraft v114 要求上传时**必须写 3 条常见问题（FAQ）**：在 `vic
 
 WebCraft v116（正式版 1.1.6）补齐技能包发布所需的元数据：`SKILL.md` 中写明版本号（SemVer 格式，如 `1.1.6`）以及中英文展示名与中英文描述，把技能包上传到会对这些字段做校验的平台时可以直接通过；字段清单见 `references/skill-development-and-publishing.md`。
 
+WebCraft v117（正式版 1.1.7）精简技能包内容：压缩包里只保留技能本体——`SKILL.md`、`agents/openai.yaml`，以及 `scripts/`、`references/`、`assets/` 目录；插件市场清单、README、版本文件这类与运行无关的文件不再打包。包更小、结构更干净，也更容易通过平台的导入校验。
+
+
 
 ## About SKILL
 Develop and upload to VicroCode in one sentence — no more stressing over tech stack decisions and endless costs.
@@ -82,6 +85,9 @@ WebCraft v113 states clearly that publishing to the public area or the 鬼斧神
 WebCraft v114 requires three FAQ pairs on every upload: add a `faq` array to `vicrocode.project.json`, each entry shaped like `{"question": "...", "answer": "..."}`. The questions must be the ones a real visitor asks before using the tool (is it free, do I need to install or sign up, does it work on a phone), and the answers may only restate what the app actually does — never invent prices, quotas or features. They render as a visible FAQ block on the project page and as `FAQPage` structured data, which is how AI answer engines (ChatGPT, Perplexity, Google AI Overviews) quote a tool. Without them the platform generates generic answers from the project's own fields, which perform noticeably worse. See step 3 of the upload workflow in `SKILL.md` and `references/agent-deploy.md`.
 
 WebCraft v116 (version 1.1.6) completes the metadata a published skill package needs: `SKILL.md` now declares the version in SemVer form (`1.1.6`) together with Chinese and English display names and descriptions, so the package passes platforms that validate those fields. See `references/skill-development-and-publishing.md`.
+
+WebCraft v117 (version 1.1.7) trims the archive down to the skill itself: `SKILL.md`, `agents/openai.yaml`, and the `scripts/`, `references/` and `assets/` folders. Plugin-marketplace manifests, the README and version files are no longer shipped, so the package is smaller, cleaner and easier for platforms to import.
+
 
 
 ## 安装方法
