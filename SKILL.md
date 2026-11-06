@@ -1,9 +1,10 @@
 ---
 name: webcraft
-version: v115
+version: 116.0.0
 display_name: WebCraft 网站构建
 display_name_en: WebCraft
 description: Build, repair, secure, and package VicroCode-ready website apps and hosted Python API tools with correct runtime routing, storage, iframe behavior, monetization, AI/API integration, Credential Vault proxying, endpoint handler and schema contracts, restricted dependencies, testing, review, upload, and publishing. Use when an agent must create or adapt a VicroCode/WebCraft HTML/JS/React/Vite/Flask/Python/SQLite app, develop an API endpoint under API Endpoint Hosting, replace hard-coded API keys with hosted identifiers, prepare clone-ready source, or repair VicroCode project checks.
+description_zh: 构建、修复、加固并打包符合 VicroCode 规范的网站应用与托管 Python API 工具，覆盖运行时路由、存储、iframe 行为、变现、AI/模型接入、凭证托管代理、端点与数据结构契约、受限依赖、测试、审核、上传与发布全流程。当智能体需要创建或改造 VicroCode/WebCraft 的 HTML/JS/React/Vite/Flask/Python/SQLite 应用、在 API 端点托管下开发接口、把硬编码密钥替换为托管标识、准备可克隆交付的源码，或修复 VicroCode 项目检查时使用。
 description_en: Build, repair, secure, and package VicroCode-ready website apps and hosted Python API tools with correct runtime routing, storage, iframe behavior, monetization, AI/API integration, Credential Vault proxying, endpoint handler and schema contracts, restricted dependencies, testing, review, upload, and publishing. Use when an agent must create or adapt a VicroCode/WebCraft HTML/JS/React/Vite/Flask/Python/SQLite app, develop an API endpoint under API Endpoint Hosting, replace hard-coded API keys with hosted identifiers, prepare clone-ready source, or repair VicroCode project checks.
 ---
 

@@ -32,7 +32,7 @@ Load this file whenever the user wants to turn a capability into a VicroCode SKI
 
 - 根目录必须有 `SKILL.md`；
 - YAML frontmatter 至少包含 `name` 与 `description`；
-- **发布到腾讯 CodeBuddy（CodeBuddy IDE「配置技能」上传 zip）时，frontmatter 还必须包含**：`version`（版本号）、`display_name`（中文展示名）、`display_name_en`（英文展示名）、`description_en`（英文描述）；`description` 缺失同样被拦截。缺任何一项平台都会解析失败并逐条报错，打包前先按目标平台清单核对；
+- **发布到腾讯 CodeBuddy（CodeBuddy IDE「配置技能」上传 zip）时，frontmatter 还必须包含**：`version`（必须是 **SemVer 2.0.0 格式**，如 `116.0.0`；`v116` 这种带 v 前缀的写法会被判不合法）、`display_name`（中文展示名）、`display_name_en`（英文展示名）、`description_zh`（中文描述）、`description_en`（英文描述）；`description` 缺失同样被拦截。缺任何一项平台都会解析失败并逐条报错，打包前先按目标平台清单核对；
 - `name` 只能是小写字母、数字、连字符，最长 64 字符，且与目录名一致；
 - 推荐提供 `agents/openai.yaml`；
 - 可选目录：`scripts/`、`references/`、`assets/`；
