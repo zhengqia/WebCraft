@@ -32,8 +32,7 @@ Load this file whenever the user wants to turn a capability into a VicroCode SKI
 
 - 根目录必须有 `SKILL.md`；
 - YAML frontmatter 至少包含 `name` 与 `description`；
-- **发布到腾讯 CodeBuddy（CodeBuddy IDE「配置技能」上传 zip）时，frontmatter 还必须包含**：`version`（必须是 **SemVer 2.0.0 格式**，如 `1.1.6`；`v116`、`116.0.0` 这类写法都不合规）、`display_name`（中文展示名）、`display_name_en`（英文展示名）、`description_zh`（中文描述）、`description_en`（英文描述）；`description` 缺失同样被拦截。缺任何一项平台都会解析失败并逐条报错，打包前先按目标平台清单核对；
-- **版本记法（团队约定）**：`VERSION` 文件与 GitHub 用简记 `v116`，对外正式版一律写 SemVer `1.1.6`——简记的数字直接拆成 `主.次.修订`：`v116`→`1.1.6`、`v117`→`1.1.7`、`v120`→`1.2.0`。任何平台要求填版本号的地方用 SemVer，不加 `v` 前缀；
+- **打包上传到任何技能平台前，先核对目标平台的 frontmatter 字段清单**。多数平台除 `name`、`description` 外还要求：`version`（SemVer 2.0.0 格式，如 `1.0.0`，不要写 `v1.0.0`）、`display_name`（中文展示名）、`display_name_en`（英文展示名）、`description_zh`（中文描述）、`description_en`（英文描述）。缺字段时平台会直接拒绝解析并逐条报错，字段值也不要用内部缩写或占位符；
 - `name` 只能是小写字母、数字、连字符，最长 64 字符，且与目录名一致；
 - 推荐提供 `agents/openai.yaml`；
 - 可选目录：`scripts/`、`references/`、`assets/`；
@@ -106,7 +105,7 @@ SKILL 详情页要分别展示：
 <site>/skills/{skill}.json
 ```
 
-中文站示例：`https://www.vicoco.cn/skills/webcraft.zip`、`https://www.vicoco.cn/skills/webcraft.json`（站点源码里同时保留 `SKILLS/webcraft.{zip,json}` 与 `public/skills/` 两份，发布前端后即可对外访问）。
+中文站示例：`https://www.vicoco.cn/skills/webcraft.zip`、`https://www.vicoco.cn/skills/webcraft.json`。
 
 JSON 采用固定 schema `vicrocode.skill.release.v1`：
 
@@ -141,7 +140,7 @@ python SKILLS/webcraft/scripts/build_release_bundle.py `
 3. `references/version-and-site-selection.md` 里的 "Current local skill version"（技能靠它做自我更新检查，写着旧版本会误判）；
 4. `README.md` 的版本更新说明段落（中英各一段）。
 
-然后把生成的 `webcraft.zip` / `webcraft.json` 复制到站点静态分发目录（本仓库为 `public/skills/`），并同步本地已安装副本（例如 `~/.agents/skills/webcraft`）。
+然后把生成的 `webcraft.zip` / `webcraft.json` 复制到站点静态分发目录（例如 `public/skills/`），并让本地已安装副本同步到同一版本。
 
 ## 7. 智能体在"发布技能"任务里的分工
 
@@ -161,4 +160,4 @@ python SKILLS/webcraft/scripts/build_release_bundle.py `
 - `scripts/` 里的脚本能在不依赖 Web 宿主进程的前提下运行；
 - 收费声明与包内真实调用一致，且说明"谁收费、多少、什么时候收"；
 - 发布物锁定 commit/内容哈希，并记录了扫描结果；
-- 站点分发目录里的 zip 与 json 版本、sha256、size 一致，且本地已安装副本已同步。
+- 站点分发目录里的 zip 与 json 版本、sha256、size 一致。

@@ -12,10 +12,8 @@ Current local skill version:
 v116
 ```
 
-`v116` is the repository / GitHub release shorthand. The **formal published version is
-SemVer**: `1.1.6` (digits of `v116` become `1.1.6`; `v120` → `1.2.0`, `v117` → `1.1.7`).
-Use the SemVer form wherever a platform validates a version field (e.g. the Tencent
-CodeBuddy `SKILL.md` frontmatter `version`), and never write the `v` prefix there.
+The same release in SemVer form is `1.1.6`; report that form when a platform asks for a
+version number.
 
 Remote package example:
 
