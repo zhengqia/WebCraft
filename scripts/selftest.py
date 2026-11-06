@@ -63,11 +63,24 @@ def check_structure() -> None:
     check("存在部署脚本", DEPLOY_SCRIPT.is_file())
 
 
+def _frontmatter_version() -> str:
+    """版本号的兜底来源：安装包里没有 VERSION 文件，只能读 SKILL.md frontmatter。"""
+    skill_md = SKILL_DIR / "SKILL.md"
+    if not skill_md.is_file():
+        return ""
+    text = skill_md.read_text(encoding="utf-8", errors="ignore")
+    body = text.split("---", 2)[1] if text.startswith("---") else text
+    match = re.search(r"^version:\s*(\S+)", body, re.MULTILINE)
+    return match.group(1).strip() if match else ""
+
+
 def check_versions() -> None:
     version_path = SKILL_DIR / "VERSION"
-    if not check("VERSION 存在", version_path.is_file()):
+    if not version_path.is_file():
+        record("SKIP", "版本一致性（安装包内没有 VERSION/marketplace.json/README）", _frontmatter_version() or "未找到版本号")
         return
     version = version_path.read_text(encoding="utf-8").strip()
+    check("VERSION 存在", True, version)
     try:
         marketplace = json.loads((SKILL_DIR / "marketplace.json").read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
@@ -200,14 +213,18 @@ def main() -> int:
     print("=" * 60)
     failed = 0
     warned = 0
+    skipped = 0
     for status, message in results:
         if status == "FAIL":
             failed += 1
         elif status == "WARN":
             warned += 1
+        elif status == "SKIP":
+            skipped += 1
         print(f"[{status}] {message}")
     print("=" * 60)
-    print(f"共 {len(results)} 项：通过 {len(results) - failed - warned}，警告 {warned}，失败 {failed}")
+    passed = len(results) - failed - warned - skipped
+    print(f"共 {len(results)} 项：通过 {passed}，警告 {warned}，跳过 {skipped}，失败 {failed}")
     return 1 if failed else 0
 
 

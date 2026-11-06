@@ -43,6 +43,9 @@ WebCraft v116（正式版 1.1.6）补齐技能包发布所需的元数据：`SKI
 
 WebCraft v117（正式版 1.1.7）精简技能包内容：压缩包里只保留技能本体——`SKILL.md`、`agents/openai.yaml`，以及 `scripts/`、`references/`、`assets/` 目录；插件市场清单、README、版本文件这类与运行无关的文件不再打包。包更小、结构更干净，也更容易通过平台的导入校验。
 
+WebCraft v118（正式版 1.1.8）让技能包里的自检脚本在缺少仓库文件时也能正常跑：安装后的包只有技能本体，`scripts/selftest.py` 会自动跳过版本一致性检查（改为读取 `SKILL.md` 里的版本号），不再因为找不到 `VERSION`、`marketplace.json`、`README.md` 而报错。
+
+
 
 
 ## About SKILL
@@ -87,6 +90,9 @@ WebCraft v114 requires three FAQ pairs on every upload: add a `faq` array to `vi
 WebCraft v116 (version 1.1.6) completes the metadata a published skill package needs: `SKILL.md` now declares the version in SemVer form (`1.1.6`) together with Chinese and English display names and descriptions, so the package passes platforms that validate those fields. See `references/skill-development-and-publishing.md`.
 
 WebCraft v117 (version 1.1.7) trims the archive down to the skill itself: `SKILL.md`, `agents/openai.yaml`, and the `scripts/`, `references/` and `assets/` folders. Plugin-marketplace manifests, the README and version files are no longer shipped, so the package is smaller, cleaner and easier for platforms to import.
+
+WebCraft v118 (version 1.1.8) makes the shipped self-check work in an installed package that has no repository files: `scripts/selftest.py` now skips the version-consistency checks and reads the version from `SKILL.md` instead of failing on a missing `VERSION`, `marketplace.json` or `README.md`.
+
 
 
 
