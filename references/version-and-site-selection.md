@@ -9,7 +9,7 @@ This skill is expected to keep evolving.
 Current local skill version:
 
 ```text
-v114
+v115
 ```
 
 Remote package example:
